@@ -218,7 +218,7 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
         <div className="citizen-form-head"><div><small>NOUVEAU SIGNALEMENT</small><h2 id="citizen-report-title">Que se passe-t-il ?</h2><p>Décrivez le problème puis confirmez sa position.</p></div><button type="button" aria-label="Fermer" onClick={() => setReportOpen(false)} disabled={submitting}><X /></button></div>
         {formError ? <div className="login-error" role="alert">{formError}</div> : null}
         <section className="citizen-form-section"><div className="citizen-step"><span>1</span><div><strong>Décrire le problème</strong><small>Informations visibles par les équipes FER</small></div></div>
-          <label>Type de dégradation<select name="category" required defaultValue="Voirie"><option>Voirie</option><option>Feux</option><option>Accotement</option><option>Ouvrage</option><option>Bac</option><option>Péage / pesage</option></select></label>
+          <label>Type de dégradation<select name="category" required defaultValue="Voirie"><option>Voirie</option><option>Feux</option><option>Accotement</option><option>Ouvrage</option><option>Bac</option><option>Péage / pesage</option><option>Orpaillage clandestin</option><option>Insécurité</option></select></label>
           <label>Intitulé<input name="title" required minLength={3} maxLength={160} autoFocus placeholder="Ex. Gros nid-de-poule sur la chaussée" /></label>
           <label>Commune ou point de repère<input name="location" required minLength={2} maxLength={240} placeholder="Ex. Cocody, près du carrefour…" /></label>
           <label>Informations complémentaires<textarea name="observations" maxLength={2000} placeholder="Précisez la taille, le danger ou tout repère utile…" /></label>
