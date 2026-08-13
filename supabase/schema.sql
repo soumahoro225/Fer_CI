@@ -26,6 +26,9 @@ create table if not exists public.incidents (
   location_accuracy_m double precision check (location_accuracy_m is null or location_accuracy_m between 0 and 100000),
   location_captured_at timestamptz,
   client_request_id uuid,
+  reporter_first_name text,
+  reporter_last_name text,
+  reporter_phone text,
   created_by uuid not null references public.profiles(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -70,7 +73,24 @@ alter table public.incidents add column if not exists location_source text;
 alter table public.incidents add column if not exists location_accuracy_m double precision;
 alter table public.incidents add column if not exists location_captured_at timestamptz;
 alter table public.incidents add column if not exists client_request_id uuid;
+alter table public.incidents add column if not exists reporter_first_name text;
+alter table public.incidents add column if not exists reporter_last_name text;
+alter table public.incidents add column if not exists reporter_phone text;
 alter table public.incidents alter column reference set default ('FER-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,8)));
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname='incidents_reporter_first_name_length_check' and conrelid='public.incidents'::regclass) then
+    alter table public.incidents add constraint incidents_reporter_first_name_length_check check (reporter_first_name is null or char_length(reporter_first_name) between 1 and 100);
+  end if;
+  if not exists (select 1 from pg_constraint where conname='incidents_reporter_last_name_length_check' and conrelid='public.incidents'::regclass) then
+    alter table public.incidents add constraint incidents_reporter_last_name_length_check check (reporter_last_name is null or char_length(reporter_last_name) between 1 and 100);
+  end if;
+  if not exists (select 1 from pg_constraint where conname='incidents_reporter_phone_format_check' and conrelid='public.incidents'::regclass) then
+    alter table public.incidents add constraint incidents_reporter_phone_format_check check (reporter_phone is null or reporter_phone ~ '^[+0-9][0-9 .()/-]{6,29}$');
+  end if;
+end
+$$;
 
 create unique index if not exists profiles_phone_unique on public.profiles(phone) where phone is not null;
 create unique index if not exists incidents_client_request_unique on public.incidents(client_request_id) where client_request_id is not null;

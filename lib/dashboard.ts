@@ -13,6 +13,9 @@ export type IncidentRecord = {
   severity: "Critique" | "Élevée" | "Modérée";
   status: string;
   observations: string | null;
+  reporter_first_name: string | null;
+  reporter_last_name: string | null;
+  reporter_phone: string | null;
   latitude: number;
   longitude: number;
   created_at: string;
@@ -80,7 +83,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
       supabase.from("profiles").select("full_name,role").eq("id", auth.user.id).single(),
       supabase
         .from("incidents")
-        .select("id,reference,title,category,location,severity,status,observations,latitude,longitude,created_at")
+        .select("id,reference,title,category,location,severity,status,observations,reporter_first_name,reporter_last_name,reporter_phone,latitude,longitude,created_at")
         .order("created_at", { ascending: false })
         .limit(200),
       supabase

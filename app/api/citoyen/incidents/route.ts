@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { parseReporterContact } from "../../../../lib/reporter-contact";
 import { createClient } from "../../../../lib/supabase/server";
 
 const categories = ["Voirie", "Feux", "Accotement", "Ouvrage", "Bac", "Péage / pesage", "Orpaillage clandestin", "Insécurité"];
@@ -47,6 +48,7 @@ export async function POST(request: Request) {
   const longitude = body.longitude;
   const accuracy = body.accuracy === null || body.accuracy === undefined ? null : body.accuracy;
   const clientRequestId = typeof body.clientRequestId === "string" ? body.clientRequestId : "";
+  const reporterContact = parseReporterContact(body);
 
   const validCoordinates = typeof latitude === "number"
     && Number.isFinite(latitude)
@@ -68,6 +70,7 @@ export async function POST(request: Request) {
     || !validAccuracy
     || !locationSource
     || !uuidPattern.test(clientRequestId)
+    || !reporterContact.valid
   ) {
     return NextResponse.json({ error: "Données de signalement invalides" }, { status: 400 });
   }
@@ -79,6 +82,7 @@ export async function POST(request: Request) {
       category,
       location,
       observations: observations || null,
+      ...reporterContact.values,
       severity: "Modérée",
       status: "À qualifier",
       latitude,

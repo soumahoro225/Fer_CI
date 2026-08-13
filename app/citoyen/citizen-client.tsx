@@ -168,6 +168,9 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
           category: String(data.get("category") || ""),
           location: String(data.get("location") || ""),
           observations: String(data.get("observations") || ""),
+          reporterFirstName: String(data.get("reporterFirstName") || ""),
+          reporterLastName: String(data.get("reporterLastName") || ""),
+          reporterPhone: String(data.get("reporterPhone") || ""),
           latitude: position.lat,
           longitude: position.lng,
           accuracy,
@@ -222,6 +225,9 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
           <label>Intitulé<input name="title" required minLength={3} maxLength={160} autoFocus placeholder="Ex. Gros nid-de-poule sur la chaussée" /></label>
           <label>Commune ou point de repère<input name="location" required minLength={2} maxLength={240} placeholder="Ex. Cocody, près du carrefour…" /></label>
           <label>Informations complémentaires<textarea name="observations" maxLength={2000} placeholder="Précisez la taille, le danger ou tout repère utile…" /></label>
+          <label>Prénom de la personne qui signale (facultatif)<input name="reporterFirstName" maxLength={100} autoComplete="given-name" placeholder="Ex. Ibrahim" /></label>
+          <label>Nom de la personne qui signale (facultatif)<input name="reporterLastName" maxLength={100} autoComplete="family-name" placeholder="Ex. Soumahoro" /></label>
+          <label>Numéro de téléphone (facultatif)<input name="reporterPhone" type="tel" inputMode="tel" maxLength={30} autoComplete="tel" placeholder="Ex. +225 07 00 00 00 00" /></label>
         </section>
 
         <section className="citizen-form-section"><div className="citizen-step"><span>2</span><div><strong>Localiser le problème</strong><small>Votre position n’est jamais suivie en continu</small></div></div>

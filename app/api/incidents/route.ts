@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { parseReporterContact } from "../../../lib/reporter-contact";
 import { createClient } from "../../../lib/supabase/server";
 
 async function authorizedClient() {
@@ -15,7 +16,7 @@ async function authorizedClient() {
 export async function GET() {
   const { supabase, user, status } = await authorizedClient();
   if (!user) return NextResponse.json({ error: status === 401 ? "Authentification requise" : "Accès FER refusé" }, { status });
-  const { data, error } = await supabase.from("incidents").select("id,reference,title,category,location,severity,status,latitude,longitude,created_at").order("created_at", { ascending: false }).limit(100);
+  const { data, error } = await supabase.from("incidents").select("id,reference,title,category,location,severity,status,latitude,longitude,reporter_first_name,reporter_last_name,reporter_phone,created_at").order("created_at", { ascending: false }).limit(100);
   if (error) {
     console.error("incidents.select", error);
     return NextResponse.json({ error: "Lecture impossible" }, { status: 500 });
@@ -35,10 +36,11 @@ export async function POST(request: Request) {
   const severity = String(body.severity || "Modérée");
   const latitude = Number(body.latitude);
   const longitude = Number(body.longitude);
-  if (!title || title.length > 160 || !location || location.length > 240 || observations.length > 2000 || !["Voirie", "Feux", "Accotement", "Ouvrage", "Bac", "Péage / pesage", "Orpaillage clandestin", "Insécurité"].includes(category) || !["Critique", "Élevée", "Modérée"].includes(severity) || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180) {
+  const reporterContact = parseReporterContact(body);
+  if (!title || title.length > 160 || !location || location.length > 240 || observations.length > 2000 || !["Voirie", "Feux", "Accotement", "Ouvrage", "Bac", "Péage / pesage", "Orpaillage clandestin", "Insécurité"].includes(category) || !["Critique", "Élevée", "Modérée"].includes(severity) || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !reporterContact.valid) {
     return NextResponse.json({ error: "Données de signalement invalides" }, { status: 400 });
   }
-  const { data, error } = await supabase.from("incidents").insert({ reference: `FER-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, title, category, location, observations, severity, latitude, longitude, created_by: user.id }).select().single();
+  const { data, error } = await supabase.from("incidents").insert({ reference: `FER-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, title, category, location, observations, ...reporterContact.values, severity, latitude, longitude, created_by: user.id }).select().single();
   if (error) {
     console.error("incidents.insert", error);
     return NextResponse.json({ error: "Enregistrement impossible" }, { status: 500 });
