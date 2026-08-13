@@ -9,6 +9,13 @@ export async function login(formData: FormData) {
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) redirect("/login?error=Identifiants%20invalides");
+  const { data: auth } = await supabase.auth.getUser();
+  const { data: profile } = await supabase.from("profiles").select("role").eq("id", auth.user?.id ?? "").maybeSingle();
+  if (!profile) {
+    await supabase.auth.signOut();
+    redirect("/login?error=Compte%20non%20autorisé");
+  }
+  if (profile.role === "citoyen") redirect("/citoyen");
   redirect("/");
 }
 

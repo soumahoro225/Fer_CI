@@ -7,5 +7,6 @@ export const dynamic = "force-dynamic";
 export default async function Home() {
   const data = await getDashboardData();
   if (!data) redirect("/login");
+  if (data.user.role === "citoyen") redirect("/citoyen");
   return <DashboardClient initialData={data} />;
 }

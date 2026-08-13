@@ -5,8 +5,10 @@ async function authorizedClient() {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return { supabase, user: null, status: 401 as const };
-  const { data: profile } = await supabase.from("profiles").select("id").eq("id", auth.user.id).maybeSingle();
-  if (!profile) return { supabase, user: null, status: 403 as const };
+  const { data: profile } = await supabase.from("profiles").select("id,role").eq("id", auth.user.id).maybeSingle();
+  if (!profile || !["direction", "agent"].includes(profile.role)) {
+    return { supabase, user: null, status: 403 as const };
+  }
   return { supabase, user: auth.user, status: 200 as const };
 }
 

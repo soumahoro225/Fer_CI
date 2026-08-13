@@ -2,7 +2,7 @@ import "server-only";
 
 import { createClient } from "./supabase/server";
 
-export type FerRole = "direction" | "agent";
+export type FerRole = "direction" | "agent" | "citoyen";
 
 export type IncidentRecord = {
   id: string;
