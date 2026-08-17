@@ -36,8 +36,8 @@
 /* KPI de la vue d’ensemble : total et répartition par catégorie. */
 .kpis{grid-template-columns:repeat(auto-fit,minmax(185px,1fr))}
 .kicon{flex:none}
-.kicon.category-kicon{background:#f4f8f6;overflow:hidden}
-.kicon.category-kicon .category-icon{transform:scale(.64)}
+.kicon.category-kicon{width:34px;height:34px;background:#f4f8f6;overflow:hidden}
+.kicon.category-kicon .category-icon{transform:scale(.44)}
 @media(max-width:1050px){.kpis{grid-template-columns:1fr 1fr}}
 @media(max-width:460px){.kpis{grid-template-columns:1fr}}
 

@@ -7,7 +7,7 @@ import {
   FileImage, Filter, Image as ImageIcon, Layers3, LocateFixed, LogOut, Map as MapIcon, MapPin, Menu, Phone, Plus,
   Search, Settings, ShipWheel, Signpost, Trash2, UserCheck, UserRound, Video, WalletCards, Wrench, X,
 } from "lucide-react";
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardData, EvidenceRecord, IncidentRecord, StaffProfile } from "../lib/dashboard";
 import {
   EVIDENCE_BUCKET, EVIDENCE_MIME_TYPES, MAX_EVIDENCE_FILES, MAX_EVIDENCE_FILE_SIZE,
@@ -17,7 +17,7 @@ import { createClient } from "../lib/supabase/client";
 import { logout } from "./login/actions";
 import BrandLogo from "./brand-logo";
 import { CategoryIcon, CategoryPicker, incidentCategories } from "./category-icon";
-import type { MapItem } from "./map-view";
+import type { MapItem, MapViewport } from "./map-view";
 
 const MapView = dynamic(() => import("./map-view"), {
   ssr: false,
@@ -96,6 +96,7 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState("Toutes");
   const [cityFilter, setCityFilter] = useState("Toutes");
+  const [mapViewport, setMapViewport] = useState<MapViewport | null>(null);
   const [query, setQuery] = useState("");
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -155,6 +156,26 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
   }), [effectiveCategoryFilter, effectiveCityFilter, items, normalizedQuery]);
   const activeFilterCount = Number(effectiveCategoryFilter !== "Toutes") + Number(effectiveCityFilter !== "Toutes");
   const hasActiveSearch = Boolean(normalizedQuery || activeFilterCount);
+  const mapScopedItems = useMemo(() => {
+    if (!mapViewport) return filtered;
+    return filtered.filter((item) => {
+      const latitudeVisible = item.lat >= mapViewport.south && item.lat <= mapViewport.north;
+      const longitudeVisible = mapViewport.west <= mapViewport.east
+        ? item.lng >= mapViewport.west && item.lng <= mapViewport.east
+        : item.lng >= mapViewport.west || item.lng <= mapViewport.east;
+      return latitudeVisible && longitudeVisible;
+    });
+  }, [filtered, mapViewport]);
+  const reportMapViewport = useCallback((viewport: MapViewport) => {
+    setMapViewport((current) => current
+      && current.south === viewport.south
+      && current.west === viewport.west
+      && current.north === viewport.north
+      && current.east === viewport.east
+      && current.zoom === viewport.zoom
+      ? current
+      : viewport);
+  }, []);
   const overviewSelected = selected && filtered.some((item) => item.databaseId === selected.databaseId)
     ? selected
     : filtered[0] ?? null;
@@ -167,12 +188,12 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
   const unpaidAmount = unpaid.reduce((sum, row) => sum + Number(row.amount_fcfa), 0);
   const categoryKpis = useMemo(() => {
     const counts = new Map<string, number>();
-    items.forEach((item) => counts.set(item.category, (counts.get(item.category) ?? 0) + 1));
+    mapScopedItems.forEach((item) => counts.set(item.category, (counts.get(item.category) ?? 0) + 1));
     return incidentCategories.map((category) => ({
       ...category,
       count: counts.get(category.value) ?? 0,
     }));
-  }, [items]);
+  }, [mapScopedItems]);
   const engagementRate = totalBudget > 0 ? Math.round((totalCommitted / totalBudget) * 1000) / 10 : 0;
   const generatedAt = new Date(initialData.generatedAt).getTime();
   const paymentAlerts = unpaid.filter((row) => (generatedAt - new Date(row.received_at).getTime()) / 86_400_000 >= 50).length;
@@ -418,11 +439,11 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
         {active === "Signalements" ? <SignalementsModule items={items} evidence={evidence} staff={initialData.staff} selected={selected} onSelect={setSelected} query={query} onQueryChange={setQuery} onUpdate={updateIncidentWorkflow} onDelete={deleteIncident} canDelete={initialData.user.role === "direction"} /> : <>
         {active !== "Vue d’ensemble" && <section className="module-banner"><strong>{active}</strong><span>Ce module est en cours d’enrichissement. Les données réelles disponibles restent visibles ci-dessous.</span></section>}
         <section className="objectives"><span>OBJECTIFS FER</span><div><p><i className={engagementRate <= 100 ? "ok" : "warn"} />Engagements / budget <b>{engagementRate}%</b></p><p><i className={paymentAlerts ? "warn" : "ok"} />Décomptes proches de 60 jours <b>{paymentAlerts}</b></p><p><i className="ok" />Patrimoine inventorié <b>{initialData.assets.length}</b></p><p><i className="ok" />Ressources enregistrées <b>{initialData.resources.length}</b></p></div></section>
-        <section className="kpis" aria-label="Nombre de signalements par catégorie">
-          <article><span className="kicon green"><BarChart3 /></span><div><small>Total des signalements</small><strong>{items.length}</strong></div></article>
+        <section className="kpis" aria-label="Nombre de signalements visibles par catégorie" aria-live="polite">
+          <article><span className="kicon green"><BarChart3 /></span><div><small>Visibles dans la carte</small><strong>{mapScopedItems.length}</strong><p>{filtered.length} après filtres · zoom {mapViewport?.zoom ?? 7}</p></div></article>
           {categoryKpis.map((category) => <article key={category.value}><span className="kicon category-kicon"><CategoryIcon category={category.value} /></span><div><small>{category.label}</small><strong>{category.count}</strong></div></article>)}
         </section>
-        <section className="main-grid"><article className="card map-card"><div className="card-head"><div><h3>Carte opérationnelle</h3><p>{filtered.length} signalement(s) affiché(s) sur {items.length}</p></div><div className="map-actions"><button aria-expanded={layers} aria-controls="overview-layers" onClick={() => { setLayers((open) => !open); setFiltersOpen(false); }}><Layers3 size={16} />Couches<ChevronDown size={14} /></button><button className={activeFilterCount ? "active" : ""} aria-expanded={filtersOpen} aria-controls="overview-filters" onClick={() => { setFiltersOpen((open) => !open); setLayers(false); }}><Filter size={16} />Filtres{activeFilterCount ? <em>{activeFilterCount}</em> : null}</button>{layers && <div className="layer-menu" id="overview-layers"><label><input type="checkbox" defaultChecked />Signalements</label><label><input type="checkbox" disabled />Interventions — bientôt</label><label><input type="checkbox" disabled />Patrimoine — bientôt</label></div>}{filtersOpen && <div className="overview-filter-menu" id="overview-filters"><div><strong>Filtrer les signalements</strong><span aria-live="polite">{filtered.length} résultat(s)</span></div><label>Type de signalement<select value={effectiveCategoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="Toutes">Tous les types</option>{categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}</select></label><label>Ville ou commune<select value={effectiveCityFilter} onChange={(event) => setCityFilter(event.target.value)}><option value="Toutes">Toutes les villes</option>{cityOptions.map((city) => <option key={city} value={city}>{city}</option>)}</select></label><button type="button" className="overview-filter-reset" disabled={!activeFilterCount} onClick={() => { setCategoryFilter("Toutes"); setCityFilter("Toutes"); }}><X />Réinitialiser</button></div>}</div></div><div className="map-wrap"><MapView items={filtered} selected={overviewSelected} onSelect={(item) => setSelected(item as Incident)} />{!filtered.length && <div className="map-empty"><MapPin /><strong>{hasActiveSearch ? "Aucun résultat" : "Aucun signalement cartographié"}</strong><span>{hasActiveSearch ? "Modifiez ou réinitialisez les filtres." : "Ajoutez le premier signalement pour faire apparaître un point sur la carte."}</span></div>}<div className="legend"><span><i className="crit" />Critique</span><span><i className="work" />Élevée</span><span><i className="asset" />Modérée</span></div></div></article>
+        <section className="main-grid"><article className="card map-card"><div className="card-head"><div><h3>Carte opérationnelle</h3><p>{mapScopedItems.length} visible(s) dans la carte · {filtered.length} après filtres</p></div><div className="map-actions"><button aria-expanded={layers} aria-controls="overview-layers" onClick={() => { setLayers((open) => !open); setFiltersOpen(false); }}><Layers3 size={16} />Couches<ChevronDown size={14} /></button><button className={activeFilterCount ? "active" : ""} aria-expanded={filtersOpen} aria-controls="overview-filters" onClick={() => { setFiltersOpen((open) => !open); setLayers(false); }}><Filter size={16} />Filtres{activeFilterCount ? <em>{activeFilterCount}</em> : null}</button>{layers && <div className="layer-menu" id="overview-layers"><label><input type="checkbox" defaultChecked />Signalements</label><label><input type="checkbox" disabled />Interventions — bientôt</label><label><input type="checkbox" disabled />Patrimoine — bientôt</label></div>}{filtersOpen && <div className="overview-filter-menu" id="overview-filters"><div><strong>Filtrer les signalements</strong><span aria-live="polite">{filtered.length} résultat(s)</span></div><label>Type de signalement<select value={effectiveCategoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="Toutes">Tous les types</option>{categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}</select></label><label>Ville ou commune<select value={effectiveCityFilter} onChange={(event) => setCityFilter(event.target.value)}><option value="Toutes">Toutes les villes</option>{cityOptions.map((city) => <option key={city} value={city}>{city}</option>)}</select></label><button type="button" className="overview-filter-reset" disabled={!activeFilterCount} onClick={() => { setCategoryFilter("Toutes"); setCityFilter("Toutes"); }}><X />Réinitialiser</button></div>}</div></div><div className="map-wrap"><MapView items={filtered} selected={overviewSelected} onSelect={(item) => setSelected(item as Incident)} onViewportChange={reportMapViewport} />{!filtered.length && <div className="map-empty"><MapPin /><strong>{hasActiveSearch ? "Aucun résultat" : "Aucun signalement cartographié"}</strong><span>{hasActiveSearch ? "Modifiez ou réinitialisez les filtres." : "Ajoutez le premier signalement pour faire apparaître un point sur la carte."}</span></div>}<div className="legend"><span><i className="crit" />Critique</span><span><i className="work" />Élevée</span><span><i className="asset" />Modérée</span></div></div></article>
           <article className="card alerts"><div className="card-head"><div><h3>Alertes prioritaires</h3><p>Signalements correspondant aux filtres</p></div><span className="record-count">{filtered.length}</span></div><div className="alert-list">{filtered.slice(0, 8).map((item) => <button key={item.id} className={overviewSelected?.id === item.id ? "selected" : ""} onClick={() => setSelected(item)}><CategoryIcon category={item.category} /><span className="alert-copy"><strong>{item.title}</strong><small>{item.location}</small>{reporterContact(item) && <em>Contact : {reporterContact(item)}</em>}<em>{item.id} · {item.status}</em></span><b className={`severity s-${item.severity[0]}`}>{item.severity}</b></button>)}{!filtered.length && <div className="empty-state"><AlertTriangle /><strong>{hasActiveSearch ? "Aucun résultat" : "Aucun signalement"}</strong><span>{hasActiveSearch ? "Modifiez votre recherche ou vos filtres." : "La base GEOSIGNALE-CI ne contient pas encore de signalement."}</span></div>}</div></article></section>
         {overviewSelected ? <section className="card incident-detail"><div className="card-head"><div><h3>Détail du signalement</h3><p>{overviewSelected.id} · {overviewSelected.category}</p></div><b className={`severity s-${overviewSelected.severity[0]}`}>{overviewSelected.severity}</b></div><div className="incident-detail-body"><div className="incident-summary"><div><strong>{overviewSelected.title}</strong><span><MapPin />{overviewSelected.location}</span>{reporterContact(overviewSelected) ? <span><Phone />{reporterContact(overviewSelected)}</span> : <span>Déclarant non renseigné</span>}</div><p>{overviewSelected.observations || "Aucune information complémentaire."}</p></div><div className="incident-evidence"><div><strong>Photos et vidéos</strong><span>{selectedEvidence.length} preuve(s)</span></div>{selectedEvidence.length ? <div className="incident-evidence-grid">{selectedEvidence.map((evidence) => <article key={evidence.id}>{evidence.signed_url ? evidence.media_type === "video" ? <video controls preload="metadata" src={evidence.signed_url} /> : <img src={evidence.signed_url} alt={`Preuve : ${evidence.original_name}`} /> : <div className="incident-evidence-unavailable"><FileImage />Indisponible</div>}<div><span>{evidence.media_type === "video" ? <Video /> : <FileImage />}{evidence.original_name}</span><small>{formatEvidenceSize(evidence.size_bytes)}</small>{evidence.signed_url ? <a href={evidence.signed_url} target="_blank" rel="noreferrer">Ouvrir <ExternalLink /></a> : null}</div></article>)}</div> : <div className="incident-evidence-empty"><FileImage /><span>Aucune photo ou vidéo jointe à ce signalement.</span></div>}</div></div></section> : null}
         <section className="bottom-grid"><article className="card performance"><div className="card-head"><div><h3>Avancement des interventions</h3><p>Données réelles par intervention</p></div><span className="record-count">{initialData.interventions.length}</span></div><div className="progress-list">{initialData.interventions.slice(0, 5).map((row) => <div key={row.id}><p><strong>{row.type}</strong><span>{row.progress}%</span></p><small>{row.contractor} · {row.status}</small><progress value={row.progress} max="100" /></div>)}{!initialData.interventions.length && <div className="empty-state compact"><Construction /><strong>Aucune intervention</strong><span>Les travaux planifiés apparaîtront ici.</span></div>}</div></article>
