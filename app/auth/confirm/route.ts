@@ -5,9 +5,13 @@ import { createClient } from "../../../lib/supabase/server";
 export async function GET(request: NextRequest) {
   const tokenHash = request.nextUrl.searchParams.get("token_hash");
   const type = request.nextUrl.searchParams.get("type") as EmailOtpType | null;
-  if (!tokenHash || !type) return NextResponse.redirect(new URL("/auth/error", request.url));
+  if (!tokenHash || !type) {
+    console.warn("auth.confirm.missing_token", { hasTokenHash: Boolean(tokenHash), hasType: Boolean(type) });
+    return NextResponse.redirect(new URL("/auth/error", request.url));
+  }
 
   const supabase = await createClient();
   const { error } = await supabase.auth.verifyOtp({ type, token_hash: tokenHash });
+  if (error) console.error("auth.confirm.verify_failed", { code: error.code, status: error.status });
   return NextResponse.redirect(new URL(error ? "/auth/error" : "/citoyen", request.url));
 }

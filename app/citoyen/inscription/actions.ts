@@ -52,3 +52,22 @@ export async function registerCitizen(formData: FormData) {
   if (data.session) redirect("/citoyen");
   redirect("/citoyen/inscription?success=Consultez%20votre%20courriel%20pour%20confirmer%20le%20compte");
 }
+
+export async function resendCitizenConfirmation(formData: FormData) {
+  const email = String(formData.get("email") || "").trim().toLowerCase();
+  if (!email || email.length > 254 || !email.includes("@")) {
+    redirect("/citoyen/inscription?resendError=L’adresse%20électronique%20est%20invalide#resend");
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.auth.resend({
+    type: "signup",
+    email,
+    options: { emailRedirectTo: `${siteUrl()}/auth/callback?next=/citoyen` },
+  });
+  if (error) {
+    console.error("citizen.confirmation.resend", { code: error.code, status: error.status });
+    redirect("/citoyen/inscription?resendError=Le%20nouveau%20lien%20n’a%20pas%20pu%20être%20envoyé#resend");
+  }
+  redirect("/citoyen/inscription?resendSuccess=Un%20nouveau%20lien%20de%20confirmation%20vient%20d’être%20envoyé#resend");
+}
