@@ -3,7 +3,6 @@ import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import { useCallback, useEffect } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents, ZoomControl } from "react-leaflet";
-import { categoryIconClass } from "./category-icon";
 
 export type MapItem = {
   id: string;
@@ -25,11 +24,11 @@ export type MapViewport = {
 };
 
 const incidentIcon = (item: MapItem, selected: boolean) => L.divIcon({
-  className: "category-map-marker-host",
-  html: `<span class="category-map-marker${selected ? " selected" : ""}" style="--marker-accent:${item.color}"><span class="category-icon ${categoryIconClass(item.category)}"></span></span>`,
-  iconSize: [34, 40],
-  iconAnchor: [17, 38],
-  popupAnchor: [0, -34],
+  className: "incident-map-point-host",
+  html: `<span class="incident-map-point${selected ? " selected" : ""}" style="--marker-accent:${item.color}"></span>`,
+  iconSize: [18, 18],
+  iconAnchor: [9, 9],
+  popupAnchor: [0, -12],
 });
 
 function ViewportObserver({ onViewportChange }: { onViewportChange: (viewport: MapViewport) => void }) {
