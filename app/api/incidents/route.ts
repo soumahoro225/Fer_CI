@@ -12,10 +12,10 @@ async function authorizedClient() {
   const { data: auth } = await supabase.auth.getUser();
   if (!auth.user) return { supabase, user: null, role: null, status: 401 as const };
   const { data: profile } = await supabase.from("profiles").select("id,role").eq("id", auth.user.id).maybeSingle();
-  if (!profile || !["direction", "agent", "user"].includes(profile.role)) {
+  if (!profile || !["direction", "agent"].includes(profile.role)) {
     return { supabase, user: null, role: null, status: 403 as const };
   }
-  return { supabase, user: auth.user, role: profile.role as "direction" | "agent" | "user", status: 200 as const };
+  return { supabase, user: auth.user, role: profile.role as "direction" | "agent", status: 200 as const };
 }
 
 export async function GET() {
@@ -30,7 +30,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { supabase, user, role, status } = await authorizedClient();
+  const { supabase, user, status } = await authorizedClient();
   if (!user) return NextResponse.json({ error: status === 401 ? "Authentification requise" : "Accès FER refusé" }, { status });
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Corps JSON invalide" }, { status: 400 }); }
@@ -38,8 +38,7 @@ export async function POST(request: Request) {
   const location = String(body.location || "").trim();
   const observations = String(body.observations || "").trim();
   const category = String(body.category || "Voirie");
-  const requestedSeverity = String(body.severity || "Modérée");
-  const severity = role === "user" ? "Modérée" : requestedSeverity;
+  const severity = String(body.severity || "Modérée");
   const latitude = typeof body.latitude === "number" ? body.latitude : Number.NaN;
   const longitude = typeof body.longitude === "number" ? body.longitude : Number.NaN;
   const locationSource = body.locationSource === "gps" || body.locationSource === "manual_map" ? body.locationSource : null;
@@ -70,9 +69,8 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const { supabase, user, role, status: authStatus } = await authorizedClient();
+  const { supabase, user, status: authStatus } = await authorizedClient();
   if (!user) return NextResponse.json({ error: authStatus === 401 ? "Authentification requise" : "Accès FER refusé" }, { status: authStatus });
-  if (role === "user") return NextResponse.json({ error: "Qualification réservée au personnel FER" }, { status: 403 });
 
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Corps JSON invalide" }, { status: 400 }); }

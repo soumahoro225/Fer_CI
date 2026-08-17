@@ -3,10 +3,9 @@ import { redirect } from "next/navigation";
 import { createClient } from "../../lib/supabase/server";
 
 export async function login(formData: FormData) {
-  const identifier = String(formData.get("identifier") || "").trim().toLocaleLowerCase("fr");
-  const email = identifier.includes("@") ? identifier : `${identifier}@geosignale.ci`;
+  const email = String(formData.get("email") || "").trim().toLocaleLowerCase("fr");
   const password = String(formData.get("password") || "");
-  if (!identifier || !password) redirect("/login?error=Champs%20requis");
+  if (!email || !password) redirect("/login?error=Champs%20requis");
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) redirect("/login?error=Identifiants%20invalides");

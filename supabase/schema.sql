@@ -6,7 +6,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null,
   phone text,
-  role text not null check (role in ('direction','agent','citoyen','user')),
+  role text not null check (role in ('direction','agent','citoyen')),
   created_at timestamptz not null default now()
 );
 
@@ -78,7 +78,7 @@ create table if not exists public.resources (
 -- Évolutions réexécutables si le schéma initial existait déjà.
 alter table public.profiles add column if not exists phone text;
 alter table public.profiles drop constraint if exists profiles_role_check;
-alter table public.profiles add constraint profiles_role_check check (role in ('direction','agent','citoyen','user'));
+alter table public.profiles add constraint profiles_role_check check (role in ('direction','agent','citoyen'));
 alter table public.profiles drop constraint if exists profiles_phone_format_check;
 alter table public.profiles add constraint profiles_phone_format_check check (phone is null or phone ~ '^[+][1-9][0-9]{7,14}$');
 alter table public.incidents add column if not exists source text not null default 'FER';
@@ -226,7 +226,6 @@ using(created_by=(select auth.uid()) or private.has_fer_role(array['direction','
 create policy incidents_insert_authorized on public.incidents for insert to authenticated with check(
   created_by=(select auth.uid()) and (
     (private.has_fer_role(array['direction','agent']) and source='FER') or
-    (private.has_fer_role(array['user']) and source='FER' and status='À qualifier' and severity='Modérée' and assigned_to is null and client_request_id is not null and location_source in ('gps','manual_map') and location_captured_at is not null) or
     (private.has_fer_role(array['citoyen']) and source='Citoyen' and status='À qualifier' and severity='Modérée' and assigned_to is null and client_request_id is not null and location_source in ('gps','manual_map') and location_captured_at is not null)
   )
 );
