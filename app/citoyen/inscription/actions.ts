@@ -10,6 +10,13 @@ type AuthFailure = {
   status?: number;
 };
 
+type RegistrationMessage = "error" | "success" | "resendError" | "resendSuccess";
+
+function redirectToRegistration(type: RegistrationMessage, message: string, anchor = ""): never {
+  const search = new URLSearchParams({ [type]: message });
+  redirect(`/citoyen/inscription?${search.toString()}${anchor}`);
+}
+
 function isEmailRateLimit(error: AuthFailure) {
   return error.status === 429
     || error.code === "over_email_send_rate_limit"
@@ -36,19 +43,19 @@ export async function registerCitizen(formData: FormData) {
   const confirmation = String(formData.get("confirmation") || "");
 
   if (fullName.length < 2 || fullName.length > 120) {
-    redirect("/citoyen/inscription?error=Le%20nom%20complet%20est%20invalide");
+    redirectToRegistration("error", "Le nom complet est invalide");
   }
   if (!email || email.length > 254 || !email.includes("@")) {
-    redirect("/citoyen/inscription?error=L’adresse%20électronique%20est%20invalide");
+    redirectToRegistration("error", "L’adresse électronique est invalide");
   }
   if (!phone) {
-    redirect("/citoyen/inscription?error=Utilisez%20un%20numéro%20ivoirien%20à%2010%20chiffres");
+    redirectToRegistration("error", "Utilisez un numéro ivoirien à 10 chiffres");
   }
   if (password.length < 12 || password.length > 128) {
-    redirect("/citoyen/inscription?error=Le%20mot%20de%20passe%20doit%20contenir%20au%20moins%2012%20caractères");
+    redirectToRegistration("error", "Le mot de passe doit contenir au moins 12 caractères");
   }
   if (password !== confirmation) {
-    redirect("/citoyen/inscription?error=Les%20deux%20mots%20de%20passe%20ne%20correspondent%20pas");
+    redirectToRegistration("error", "Les deux mots de passe ne correspondent pas");
   }
 
   const supabase = await createClient();
@@ -64,18 +71,22 @@ export async function registerCitizen(formData: FormData) {
   if (error) {
     logAuthFailure("citizen.signup", error);
     if (isEmailRateLimit(error)) {
-      redirect("/citoyen/inscription?error=Trop%20de%20courriels%20de%20confirmation%20ont%20été%20demandés.%20Patientez%20environ%20une%20heure,%20puis%20utilisez%20«%20Renvoyer%20l’e-mail%20de%20confirmation%20».#resend");
+      redirectToRegistration(
+        "error",
+        "Trop de courriels de confirmation ont été demandés. Patientez environ une heure, puis réessayez ou demandez un nouveau lien si le compte existe déjà.",
+        "#resend",
+      );
     }
-    redirect("/citoyen/inscription?error=Création%20du%20compte%20impossible");
+    redirectToRegistration("error", "Création du compte impossible");
   }
   if (data.session) redirect("/citoyen");
-  redirect("/citoyen/inscription?success=Consultez%20votre%20courriel%20pour%20confirmer%20le%20compte");
+  redirectToRegistration("success", "Consultez votre courriel pour confirmer le compte");
 }
 
 export async function resendCitizenConfirmation(formData: FormData) {
   const email = String(formData.get("email") || "").trim().toLowerCase();
   if (!email || email.length > 254 || !email.includes("@")) {
-    redirect("/citoyen/inscription?resendError=L’adresse%20électronique%20est%20invalide#resend");
+    redirectToRegistration("resendError", "L’adresse électronique est invalide", "#resend");
   }
 
   const supabase = await createClient();
@@ -87,9 +98,13 @@ export async function resendCitizenConfirmation(formData: FormData) {
   if (error) {
     logAuthFailure("citizen.confirmation.resend", error);
     if (isEmailRateLimit(error)) {
-      redirect("/citoyen/inscription?resendError=Limite%20temporaire%20d’envoi%20atteinte.%20Patientez%20environ%20une%20heure%20avant%20de%20demander%20un%20nouveau%20lien.#resend");
+      redirectToRegistration(
+        "resendError",
+        "Limite temporaire d’envoi atteinte. Patientez environ une heure avant de demander un nouveau lien.",
+        "#resend",
+      );
     }
-    redirect("/citoyen/inscription?resendError=Le%20nouveau%20lien%20n’a%20pas%20pu%20être%20envoyé#resend");
+    redirectToRegistration("resendError", "Le nouveau lien n’a pas pu être envoyé", "#resend");
   }
-  redirect("/citoyen/inscription?resendSuccess=Un%20nouveau%20lien%20de%20confirmation%20vient%20d’être%20envoyé#resend");
+  redirectToRegistration("resendSuccess", "Un nouveau lien de confirmation vient d’être envoyé", "#resend");
 }
