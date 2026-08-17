@@ -38,7 +38,7 @@ export async function POST(request: Request) {
   const severity = String(body.severity || "Modérée");
   const latitude = typeof body.latitude === "number" ? body.latitude : Number.NaN;
   const longitude = typeof body.longitude === "number" ? body.longitude : Number.NaN;
-  const locationSource = body.locationSource === "gps" || body.locationSource === "ip" || body.locationSource === "manual_map" ? body.locationSource : null;
+  const locationSource = body.locationSource === "gps" || body.locationSource === "manual_map" ? body.locationSource : null;
   const locationAccuracy = body.locationAccuracy === null || body.locationAccuracy === undefined
     ? null
     : typeof body.locationAccuracy === "number" ? body.locationAccuracy : Number.NaN;

@@ -32,7 +32,7 @@ type Incident = MapItem & {
   reporterPhone: string | null;
 };
 type EvidenceSelection = { file: File; mimeType: string; previewUrl: string };
-type StaffLocationSource = "gps" | "ip" | "manual_map";
+type StaffLocationSource = "gps" | "manual_map";
 type StaffLocationState = "idle" | "locating" | "ready" | "error";
 
 const nav = [
@@ -137,31 +137,12 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
   const generatedAt = new Date(initialData.generatedAt).getTime();
   const paymentAlerts = unpaid.filter((row) => (generatedAt - new Date(row.received_at).getTime()) / 86_400_000 >= 50).length;
 
-  async function locateFromIp() {
-    try {
-      const response = await fetch("/api/location", { cache: "no-store" });
-      const payload = await response.json();
-      if (!response.ok || typeof payload.latitude !== "number" || typeof payload.longitude !== "number") {
-        throw new Error(payload.error || "Position IP indisponible");
-      }
-      setLatitudeText(payload.latitude.toFixed(6));
-      setLongitudeText(payload.longitude.toFixed(6));
-      setLocationSource("ip");
-      setLocationAccuracy(null);
-      setLocationState("ready");
-      setLocationMessage(`Position IP approximative détectée${payload.city ? ` près de ${payload.city}` : ""}. Vérifiez les coordonnées avant l’enregistrement.`);
-    } catch {
-      setLocationState("error");
-      setLocationMessage("La position automatique est indisponible. Saisissez les coordonnées manuellement ou appuyez sur « Me localiser » pour réessayer.");
-    }
-  }
-
   function locateDevice() {
     setLocationState("locating");
-    setLocationMessage("Recherche de votre position précise…");
+    setLocationMessage("Recherche de la position fournie par votre navigateur…");
     if (!("geolocation" in navigator)) {
-      setLocationMessage("GPS indisponible. Recherche d’une position approximative par IP…");
-      void locateFromIp();
+      setLocationState("error");
+      setLocationMessage("Ce navigateur ne prend pas en charge la géolocalisation. Saisissez les coordonnées manuellement.");
       return;
     }
     navigator.geolocation.getCurrentPosition(
@@ -173,9 +154,15 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
         setLocationState("ready");
         setLocationMessage(`Position précise détectée${Number.isFinite(position.coords.accuracy) ? ` à environ ${Math.round(position.coords.accuracy)} m` : ""}.`);
       },
-      () => {
-        setLocationMessage("GPS refusé ou indisponible. Recherche d’une position approximative par IP…");
-        void locateFromIp();
+      (error) => {
+        setLocationState("error");
+        if (error.code === error.PERMISSION_DENIED) {
+          setLocationMessage("Localisation refusée. Autorisez-la dans les paramètres du navigateur, puis appuyez sur « Me localiser ».");
+        } else if (error.code === error.TIMEOUT) {
+          setLocationMessage("La localisation a pris trop de temps. Vérifiez que le service de localisation de l’ordinateur est activé, puis réessayez.");
+        } else {
+          setLocationMessage("Position indisponible. Activez le service de localisation de l’ordinateur, puis appuyez sur « Me localiser ».");
+        }
       },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
     );
