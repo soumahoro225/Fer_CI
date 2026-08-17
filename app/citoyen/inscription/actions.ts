@@ -4,6 +4,22 @@ import { redirect } from "next/navigation";
 import { createClient } from "../../../lib/supabase/server";
 import { siteUrl } from "../../../lib/site-url";
 
+type AuthFailure = {
+  code?: string;
+  message: string;
+  status?: number;
+};
+
+function isEmailRateLimit(error: AuthFailure) {
+  return error.status === 429
+    || error.code === "over_email_send_rate_limit"
+    || error.message.toLowerCase().includes("email rate limit");
+}
+
+function logAuthFailure(event: string, error: AuthFailure) {
+  console.error(event, { code: error.code ?? "unknown", status: error.status ?? 500 });
+}
+
 function normalizeIvorianPhone(value: string) {
   const compact = value.trim().replace(/[\s().-]/g, "");
   if (/^\+225\d{10}$/.test(compact)) return compact;
@@ -46,7 +62,10 @@ export async function registerCitizen(formData: FormData) {
   });
 
   if (error) {
-    console.error("citizen.signup", error.message);
+    logAuthFailure("citizen.signup", error);
+    if (isEmailRateLimit(error)) {
+      redirect("/citoyen/inscription?error=Trop%20de%20courriels%20de%20confirmation%20ont%20été%20demandés.%20Patientez%20environ%20une%20heure,%20puis%20utilisez%20«%20Renvoyer%20l’e-mail%20de%20confirmation%20».#resend");
+    }
     redirect("/citoyen/inscription?error=Création%20du%20compte%20impossible");
   }
   if (data.session) redirect("/citoyen");
@@ -66,7 +85,10 @@ export async function resendCitizenConfirmation(formData: FormData) {
     options: { emailRedirectTo: `${siteUrl()}/auth/callback?next=/citoyen` },
   });
   if (error) {
-    console.error("citizen.confirmation.resend", { code: error.code, status: error.status });
+    logAuthFailure("citizen.confirmation.resend", error);
+    if (isEmailRateLimit(error)) {
+      redirect("/citoyen/inscription?resendError=Limite%20temporaire%20d’envoi%20atteinte.%20Patientez%20environ%20une%20heure%20avant%20de%20demander%20un%20nouveau%20lien.#resend");
+    }
     redirect("/citoyen/inscription?resendError=Le%20nouveau%20lien%20n’a%20pas%20pu%20être%20envoyé#resend");
   }
   redirect("/citoyen/inscription?resendSuccess=Un%20nouveau%20lien%20de%20confirmation%20vient%20d’être%20envoyé#resend");
