@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { parseReporterContact } from "../../../../lib/reporter-contact";
 import { createClient } from "../../../../lib/supabase/server";
 
-const categories = ["Voirie", "Feux", "Accotement", "Ouvrage", "Bac", "Péage / pesage", "Orpaillage clandestin", "Insécurité", "Nuisance sonore"];
+const categories = ["Voirie", "Feux", "Accotement", "Ouvrage", "Bac", "Péage / pesage", "Orpaillage clandestin", "Insécurité", "Nuisance sonore", "Corruption"];
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 async function citizenClient() {

@@ -8,6 +8,7 @@ export const incidentCategories = [
   { value: "Bac", label: "Bac", position: "c1-r3" },
   { value: "Péage / pesage", label: "Péage en panne", position: "c2-r3" },
   { value: "Accotement", label: "Accotement", position: "c3-r3" },
+  { value: "Corruption", label: "Corruption", position: "corruption" },
 ] as const;
 
 const positions = new Map<string, string>(incidentCategories.map((item) => [item.value, item.position]));
