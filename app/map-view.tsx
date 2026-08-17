@@ -18,9 +18,9 @@ export type MapItem = {
 const incidentIcon = (item: MapItem, selected: boolean) => L.divIcon({
   className: "category-map-marker-host",
   html: `<span class="category-map-marker${selected ? " selected" : ""}" style="--marker-accent:${item.color}"><span class="category-icon ${categoryIconClass(item.category)}"></span></span>`,
-  iconSize: [62, 70],
-  iconAnchor: [31, 64],
-  popupAnchor: [0, -58],
+  iconSize: [42, 50],
+  iconAnchor: [21, 46],
+  popupAnchor: [0, -42],
 });
 
 export default function MapView({ items, selected, onSelect }: { items: MapItem[]; selected: MapItem | null; onSelect: (item: MapItem) => void }) {

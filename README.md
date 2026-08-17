@@ -1,4 +1,4 @@
-# Signale CI
+# GEOSIGNALE-CI
 
 Plateforme citoyenne de signalement géolocalisé et de pilotage opérationnel en Côte d’Ivoire, portée par le Fonds d’entretien routier.
 

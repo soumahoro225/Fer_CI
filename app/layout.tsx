@@ -9,9 +9,9 @@ import "./category-icons.css";
 const sans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const mono = Geist_Mono({ variable: "--font-mono", subsets: ["latin"] });
 export const metadata: Metadata = {
-  title: "Signale CI",
+  title: "GEOSIGNALE-CI",
   description: "Plateforme citoyenne de signalement géolocalisé en Côte d’Ivoire.",
-  applicationName: "Signale CI",
+  applicationName: "GEOSIGNALE-CI",
   icons: { icon: "/logo-signale-ci.svg", apple: "/logo-signale-ci.svg" },
   other: { "codex-preview": "development" },
 };
