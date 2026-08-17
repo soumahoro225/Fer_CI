@@ -6,7 +6,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   full_name text not null,
   phone text,
-  role text not null check (role in ('direction','agent','citoyen')),
+  role text not null check (role in ('direction','agent','citoyen','user')),
   created_at timestamptz not null default now()
 );
 
@@ -37,7 +37,7 @@ create table if not exists public.incidents (
 );
 
 create table if not exists public.interventions (
-  id uuid primary key default gen_random_uuid(), incident_id uuid references public.incidents(id),
+  id uuid primary key default gen_random_uuid(), incident_id uuid references public.incidents(id) on delete set null,
   type text not null, contractor text not null, progress integer not null default 0 check(progress between 0 and 100),
   budget_fcfa bigint not null default 0, committed_fcfa bigint not null default 0,
   planned_start date, planned_end date, status text not null default 'Planifiée',
@@ -78,7 +78,7 @@ create table if not exists public.resources (
 -- Évolutions réexécutables si le schéma initial existait déjà.
 alter table public.profiles add column if not exists phone text;
 alter table public.profiles drop constraint if exists profiles_role_check;
-alter table public.profiles add constraint profiles_role_check check (role in ('direction','agent','citoyen'));
+alter table public.profiles add constraint profiles_role_check check (role in ('direction','agent','citoyen','user'));
 alter table public.profiles drop constraint if exists profiles_phone_format_check;
 alter table public.profiles add constraint profiles_phone_format_check check (phone is null or phone ~ '^[+][1-9][0-9]{7,14}$');
 alter table public.incidents add column if not exists source text not null default 'FER';
@@ -92,6 +92,8 @@ alter table public.incidents add column if not exists reporter_first_name text;
 alter table public.incidents add column if not exists reporter_last_name text;
 alter table public.incidents add column if not exists reporter_phone text;
 alter table public.incidents add column if not exists assigned_to uuid references public.profiles(id) on delete set null;
+alter table public.interventions drop constraint if exists interventions_incident_id_fkey;
+alter table public.interventions add constraint interventions_incident_id_fkey foreign key (incident_id) references public.incidents(id) on delete set null;
 alter table public.incidents alter column reference set default ('FER-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,8)));
 alter table public.incidents drop constraint if exists incidents_status_check;
 alter table public.incidents add constraint incidents_status_check check (status in ('À qualifier','Validé','Planifié','En traitement','Résolu','Rejeté'));
@@ -218,16 +220,20 @@ drop policy if exists "auteur ou direction modifie incidents" on public.incident
 drop policy if exists incidents_select_authorized on public.incidents;
 drop policy if exists incidents_insert_authorized on public.incidents;
 drop policy if exists staff_update_incidents on public.incidents;
+drop policy if exists direction_delete_incidents on public.incidents;
 create policy incidents_select_authorized on public.incidents for select to authenticated
 using(created_by=(select auth.uid()) or private.has_fer_role(array['direction','agent']));
 create policy incidents_insert_authorized on public.incidents for insert to authenticated with check(
   created_by=(select auth.uid()) and (
     (private.has_fer_role(array['direction','agent']) and source='FER') or
-    (private.has_fer_role(array['citoyen']) and source='Citoyen' and status='À qualifier' and severity='Modérée' and location_source in ('gps','manual_map') and location_captured_at is not null)
+    (private.has_fer_role(array['user']) and source='FER' and status='À qualifier' and severity='Modérée' and assigned_to is null and client_request_id is not null and location_source in ('gps','manual_map') and location_captured_at is not null) or
+    (private.has_fer_role(array['citoyen']) and source='Citoyen' and status='À qualifier' and severity='Modérée' and assigned_to is null and client_request_id is not null and location_source in ('gps','manual_map') and location_captured_at is not null)
   )
 );
 create policy staff_update_incidents on public.incidents for update to authenticated
 using(private.has_fer_role(array['direction','agent'])) with check(private.has_fer_role(array['direction','agent']));
+create policy direction_delete_incidents on public.incidents for delete to authenticated
+using(private.has_fer_role(array['direction']));
 
 drop policy if exists "personnel lit interventions" on public.interventions;
 drop policy if exists "personnel crée interventions" on public.interventions;
@@ -266,7 +272,8 @@ create policy direction_delete_resources on public.resources for delete to authe
 revoke all on public.profiles,public.incidents,public.interventions,public.assets,public.payments,public.resources,public.incident_evidence from anon,authenticated;
 grant usage on schema public to authenticated;
 grant select on public.profiles to authenticated;
-grant select,insert,update on public.incidents,public.interventions,public.assets to authenticated;
+grant select,insert,update on public.interventions,public.assets to authenticated;
+grant select,insert,update,delete on public.incidents to authenticated;
 grant select,insert,update,delete on public.payments,public.resources to authenticated;
 grant select,insert on public.incident_evidence to authenticated;
 
@@ -286,6 +293,12 @@ drop policy if exists incident_evidence_storage_select on storage.objects;
 create policy incident_evidence_storage_select on storage.objects for select to authenticated
 using(
   bucket_id='incident-evidence'
-  and exists(select 1 from public.incidents incident where incident.id::text=(storage.foldername(name))[2]
-    and (incident.created_by=(select auth.uid()) or private.has_fer_role(array['direction','agent'])))
+  and (
+    private.has_fer_role(array['direction'])
+    or exists(select 1 from public.incidents incident where incident.id::text=(storage.foldername(name))[2]
+      and (incident.created_by=(select auth.uid()) or private.has_fer_role(array['agent'])))
+  )
 );
+drop policy if exists incident_evidence_storage_delete_direction on storage.objects;
+create policy incident_evidence_storage_delete_direction on storage.objects for delete to authenticated
+using(bucket_id='incident-evidence' and private.has_fer_role(array['direction']));

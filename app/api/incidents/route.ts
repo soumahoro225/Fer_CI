@@ -10,12 +10,12 @@ const incidentFields = "id,reference,title,category,location,severity,status,obs
 async function authorizedClient() {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
-  if (!auth.user) return { supabase, user: null, status: 401 as const };
+  if (!auth.user) return { supabase, user: null, role: null, status: 401 as const };
   const { data: profile } = await supabase.from("profiles").select("id,role").eq("id", auth.user.id).maybeSingle();
-  if (!profile || !["direction", "agent"].includes(profile.role)) {
-    return { supabase, user: null, status: 403 as const };
+  if (!profile || !["direction", "agent", "user"].includes(profile.role)) {
+    return { supabase, user: null, role: null, status: 403 as const };
   }
-  return { supabase, user: auth.user, status: 200 as const };
+  return { supabase, user: auth.user, role: profile.role as "direction" | "agent" | "user", status: 200 as const };
 }
 
 export async function GET() {
@@ -30,7 +30,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const { supabase, user, status } = await authorizedClient();
+  const { supabase, user, role, status } = await authorizedClient();
   if (!user) return NextResponse.json({ error: status === 401 ? "Authentification requise" : "Accès FER refusé" }, { status });
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Corps JSON invalide" }, { status: 400 }); }
@@ -38,7 +38,8 @@ export async function POST(request: Request) {
   const location = String(body.location || "").trim();
   const observations = String(body.observations || "").trim();
   const category = String(body.category || "Voirie");
-  const severity = String(body.severity || "Modérée");
+  const requestedSeverity = String(body.severity || "Modérée");
+  const severity = role === "user" ? "Modérée" : requestedSeverity;
   const latitude = typeof body.latitude === "number" ? body.latitude : Number.NaN;
   const longitude = typeof body.longitude === "number" ? body.longitude : Number.NaN;
   const locationSource = body.locationSource === "gps" || body.locationSource === "manual_map" ? body.locationSource : null;
@@ -69,8 +70,9 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const { supabase, user, status: authStatus } = await authorizedClient();
+  const { supabase, user, role, status: authStatus } = await authorizedClient();
   if (!user) return NextResponse.json({ error: authStatus === 401 ? "Authentification requise" : "Accès FER refusé" }, { status: authStatus });
+  if (role === "user") return NextResponse.json({ error: "Qualification réservée au personnel FER" }, { status: 403 });
 
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return NextResponse.json({ error: "Corps JSON invalide" }, { status: 400 }); }
@@ -109,4 +111,48 @@ export async function PATCH(request: Request) {
   }
   if (!data) return NextResponse.json({ error: "Signalement introuvable" }, { status: 404 });
   return NextResponse.json({ incident: data });
+}
+
+export async function DELETE(request: Request) {
+  const { supabase, user, role, status: authStatus } = await authorizedClient();
+  if (!user) return NextResponse.json({ error: authStatus === 401 ? "Authentification requise" : "Accès FER refusé" }, { status: authStatus });
+  if (role !== "direction") return NextResponse.json({ error: "Suppression réservée à la Direction" }, { status: 403 });
+
+  let body: Record<string, unknown>;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: "Corps JSON invalide" }, { status: 400 }); }
+  const id = typeof body.id === "string" ? body.id : "";
+  if (!uuidPattern.test(id)) return NextResponse.json({ error: "Identifiant de signalement invalide" }, { status: 400 });
+
+  const { data: evidenceRows, error: evidenceError } = await supabase
+    .from("incident_evidence")
+    .select("storage_path")
+    .eq("incident_id", id);
+  if (evidenceError) {
+    console.error("incidents.delete.evidence.select", evidenceError);
+    return NextResponse.json({ error: "Vérification des preuves impossible" }, { status: 500 });
+  }
+
+  const { data: deleted, error: deleteError } = await supabase
+    .from("incidents")
+    .delete()
+    .eq("id", id)
+    .select("id,reference")
+    .maybeSingle();
+  if (deleteError) {
+    console.error("incidents.delete", deleteError);
+    return NextResponse.json({ error: "Suppression impossible" }, { status: 500 });
+  }
+  if (!deleted) return NextResponse.json({ error: "Signalement introuvable" }, { status: 404 });
+
+  const storagePaths = (evidenceRows ?? []).map((row) => row.storage_path);
+  let evidenceCleanupPending = false;
+  if (storagePaths.length) {
+    const { error: storageError } = await supabase.storage.from("incident-evidence").remove(storagePaths);
+    if (storageError) {
+      evidenceCleanupPending = true;
+      console.error("incidents.delete.evidence.storage", storageError);
+    }
+  }
+
+  return NextResponse.json({ deleted, evidenceCleanupPending });
 }

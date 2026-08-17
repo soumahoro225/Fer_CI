@@ -10,7 +10,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<{ 
       <div><h1>Connexion</h1><p>Accédez à votre espace de gestion ou à votre espace citoyen.</p></div>
       {error ? <div className="login-error" role="alert">{error}</div> : null}
       {message ? <div className="success-message" role="status">{message}</div> : null}
-      <label>Adresse électronique<input name="email" type="email" required autoComplete="email" /></label>
+      <label>Adresse électronique ou identifiant<input name="identifier" type="text" required autoComplete="username" /></label>
       <label>Mot de passe<input name="password" type="password" required autoComplete="current-password" /></label>
       <button className="primary">Se connecter</button>
       <div className="citizen-auth-link"><span>Vous êtes citoyen ?</span><Link href="/citoyen/inscription">Créer un compte citoyen</Link></div>
