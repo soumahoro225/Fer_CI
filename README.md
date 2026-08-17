@@ -1,6 +1,6 @@
-# FER SIG — Entretien routier
+# Signale CI
 
-MVP de pilotage géographique, opérationnel et financier du Fonds d’entretien routier.
+Plateforme citoyenne de signalement géolocalisé et de pilotage opérationnel en Côte d’Ivoire, portée par le Fonds d’entretien routier.
 
 ## Architecture
 

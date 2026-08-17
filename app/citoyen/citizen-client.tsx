@@ -196,12 +196,12 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
 
   return <main className="citizen-shell">
     <header className="citizen-header">
-      <div className="citizen-logo"><span>FER</span><div><strong>Routes CI</strong><small>Espace citoyen</small></div></div>
+      <div className="citizen-logo"><span>FER</span><div><strong>Signale CI</strong><small>Espace citoyen</small></div></div>
       <div className="citizen-user"><CircleUserRound /><div><strong>{initialData.user.fullName}</strong><small>{initialData.user.phone}</small></div><form action={logout}><button aria-label="Se déconnecter" title="Se déconnecter"><LogOut /></button></form></div>
     </header>
 
     <section className="citizen-hero">
-      <div><span className="citizen-eyebrow"><ShieldCheck /> Service officiel du FER</span><h1>Bonjour {firstName(initialData.user.fullName)},</h1><p>Un problème sur la route ? Signalez-le en quelques instants avec sa position exacte.</p><button className="citizen-report-cta" onClick={openReport}><Plus />Faire un signalement</button></div>
+      <div><span className="citizen-eyebrow"><ShieldCheck /> Service citoyen géolocalisé</span><h1>Bonjour {firstName(initialData.user.fullName)},</h1><p>Un problème dans votre communauté ? Signalez-le en quelques instants avec sa position exacte.</p><button className="citizen-report-cta" onClick={openReport}><Plus />Faire un signalement</button></div>
       <div className="citizen-hero-visual"><Navigation /><span>Votre signalement aide les équipes à intervenir au bon endroit.</span></div>
     </section>
 
@@ -220,8 +220,8 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
       <form className="citizen-report-form" role="dialog" aria-modal="true" aria-labelledby="citizen-report-title" onSubmit={submitReport}>
         <div className="citizen-form-head"><div><small>NOUVEAU SIGNALEMENT</small><h2 id="citizen-report-title">Que se passe-t-il ?</h2><p>Décrivez le problème puis confirmez sa position.</p></div><button type="button" aria-label="Fermer" onClick={() => setReportOpen(false)} disabled={submitting}><X /></button></div>
         {formError ? <div className="login-error" role="alert">{formError}</div> : null}
-        <section className="citizen-form-section"><div className="citizen-step"><span>1</span><div><strong>Décrire le problème</strong><small>Informations visibles par les équipes FER</small></div></div>
-          <label>Type de dégradation<select name="category" required defaultValue="Voirie"><option>Voirie</option><option>Feux</option><option>Accotement</option><option>Ouvrage</option><option>Bac</option><option>Péage / pesage</option><option>Orpaillage clandestin</option><option>Insécurité</option></select></label>
+        <section className="citizen-form-section"><div className="citizen-step"><span>1</span><div><strong>Décrire le problème</strong><small>Informations visibles par les équipes de traitement</small></div></div>
+          <label>Catégorie du signalement<select name="category" required defaultValue="Voirie"><option>Voirie</option><option>Feux</option><option>Accotement</option><option>Ouvrage</option><option>Bac</option><option>Péage / pesage</option><option>Orpaillage clandestin</option><option>Insécurité</option><option>Nuisance sonore</option></select></label>
           <label>Intitulé<input name="title" required minLength={3} maxLength={160} autoFocus placeholder="Ex. Gros nid-de-poule sur la chaussée" /></label>
           <label>Commune ou point de repère<input name="location" required minLength={2} maxLength={240} placeholder="Ex. Cocody, près du carrefour…" /></label>
           <label>Informations complémentaires<textarea name="observations" maxLength={2000} placeholder="Précisez la taille, le danger ou tout repère utile…" /></label>
@@ -239,8 +239,8 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
           {position ? <div className={`citizen-position-confirm ${confirmed ? "confirmed" : ""}`}><div><strong>{confirmed ? "Position confirmée" : "Cette position est-elle correcte ?"}</strong><small>{position.lat.toFixed(6)}, {position.lng.toFixed(6)}{accuracy !== null ? ` · précision ${Math.round(accuracy)} m` : " · position manuelle"}</small></div><button type="button" onClick={() => setConfirmed(true)} disabled={confirmed}>{confirmed ? <Check /> : <MapPin />}{confirmed ? "Confirmée" : "Confirmer"}</button></div> : null}
         </section>
 
-        <div className="citizen-form-note"><AlertTriangle /><span>La priorité et la planification seront déterminées par les équipes techniques du FER.</span></div>
-        <div className="citizen-form-actions"><button type="button" onClick={() => { resetLocation(); setFormError(""); }} disabled={submitting}><RotateCcw />Réinitialiser la position</button><button className="citizen-primary" disabled={submitting || !confirmed}><Send />{submitting ? "Envoi en cours…" : "Envoyer au FER"}</button></div>
+        <div className="citizen-form-note"><AlertTriangle /><span>La priorité et la planification seront déterminées par les équipes techniques compétentes.</span></div>
+        <div className="citizen-form-actions"><button type="button" onClick={() => { resetLocation(); setFormError(""); }} disabled={submitting}><RotateCcw />Réinitialiser la position</button><button className="citizen-primary" disabled={submitting || !confirmed}><Send />{submitting ? "Envoi en cours…" : "Envoyer le signalement"}</button></div>
       </form>
     </div> : null}
   </main>;

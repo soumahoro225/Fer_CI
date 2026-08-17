@@ -1,4 +1,4 @@
--- FER SIG — schéma réexécutable de référence pour Supabase.
+-- Signale CI — schéma réexécutable de référence pour Supabase.
 create extension if not exists pgcrypto;
 create schema if not exists private;
 
