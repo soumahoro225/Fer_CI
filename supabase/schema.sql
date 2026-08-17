@@ -22,7 +22,7 @@ create table if not exists public.incidents (
   latitude double precision not null check (latitude between -90 and 90),
   longitude double precision not null check (longitude between -180 and 180),
   source text not null default 'FER' check (source in ('FER','Citoyen')),
-  location_source text check (location_source is null or location_source in ('gps','manual_map')),
+  location_source text check (location_source is null or location_source in ('gps','manual_map','ip')),
   location_accuracy_m double precision check (location_accuracy_m is null or location_accuracy_m between 0 and 100000),
   location_captured_at timestamptz,
   client_request_id uuid,
@@ -82,6 +82,8 @@ alter table public.profiles drop constraint if exists profiles_phone_format_chec
 alter table public.profiles add constraint profiles_phone_format_check check (phone is null or phone ~ '^[+][1-9][0-9]{7,14}$');
 alter table public.incidents add column if not exists source text not null default 'FER';
 alter table public.incidents add column if not exists location_source text;
+alter table public.incidents drop constraint if exists incidents_location_source_check;
+alter table public.incidents add constraint incidents_location_source_check check (location_source is null or location_source in ('gps','manual_map','ip'));
 alter table public.incidents add column if not exists location_accuracy_m double precision;
 alter table public.incidents add column if not exists location_captured_at timestamptz;
 alter table public.incidents add column if not exists client_request_id uuid;

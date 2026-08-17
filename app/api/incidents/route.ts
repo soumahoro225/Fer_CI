@@ -36,14 +36,19 @@ export async function POST(request: Request) {
   const observations = String(body.observations || "").trim();
   const category = String(body.category || "Voirie");
   const severity = String(body.severity || "Modérée");
-  const latitude = Number(body.latitude);
-  const longitude = Number(body.longitude);
+  const latitude = typeof body.latitude === "number" ? body.latitude : Number.NaN;
+  const longitude = typeof body.longitude === "number" ? body.longitude : Number.NaN;
+  const locationSource = body.locationSource === "gps" || body.locationSource === "ip" || body.locationSource === "manual_map" ? body.locationSource : null;
+  const locationAccuracy = body.locationAccuracy === null || body.locationAccuracy === undefined
+    ? null
+    : typeof body.locationAccuracy === "number" ? body.locationAccuracy : Number.NaN;
   const reporterContact = parseReporterContact(body);
   const clientRequestId = typeof body.clientRequestId === "string" ? body.clientRequestId : "";
-  if (!title || title.length > 160 || !location || location.length > 240 || observations.length > 2000 || !["Voirie", "Feux", "Accotement", "Ouvrage", "Bac", "Péage / pesage", "Orpaillage clandestin", "Insécurité", "Nuisance sonore"].includes(category) || !["Critique", "Élevée", "Modérée"].includes(severity) || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !uuidPattern.test(clientRequestId) || !reporterContact.valid) {
+  const validAccuracy = locationAccuracy === null || (Number.isFinite(locationAccuracy) && locationAccuracy >= 0 && locationAccuracy <= 100000);
+  if (!title || title.length > 160 || !location || location.length > 240 || observations.length > 2000 || !["Voirie", "Feux", "Accotement", "Ouvrage", "Bac", "Péage / pesage", "Orpaillage clandestin", "Insécurité", "Nuisance sonore"].includes(category) || !["Critique", "Élevée", "Modérée"].includes(severity) || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !locationSource || !validAccuracy || !uuidPattern.test(clientRequestId) || !reporterContact.valid) {
     return NextResponse.json({ error: "Données de signalement invalides" }, { status: 400 });
   }
-  const { data, error } = await supabase.from("incidents").insert({ reference: `FER-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, title, category, location, observations: observations || null, ...reporterContact.values, severity, latitude, longitude, client_request_id: clientRequestId, created_by: user.id }).select().single();
+  const { data, error } = await supabase.from("incidents").insert({ reference: `FER-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, title, category, location, observations: observations || null, ...reporterContact.values, severity, latitude, longitude, source: "FER", location_source: locationSource, location_accuracy_m: locationSource === "gps" ? locationAccuracy : null, location_captured_at: new Date().toISOString(), client_request_id: clientRequestId, created_by: user.id }).select().single();
   if (error?.code === "23505") {
     const { data: existing } = await supabase
       .from("incidents")

@@ -3,8 +3,8 @@
 
 import dynamic from "next/dynamic";
 import {
-  AlertTriangle, BarChart3, Bell, Camera, ChevronDown, ClipboardList, Construction, ExternalLink,
-  FileImage, Filter, Image as ImageIcon, Landmark, Layers3, LogOut, Map, MapPin, Menu, Phone, Plus,
+  AlertTriangle, BarChart3, Bell, Camera, ChevronDown, ClipboardList, Construction, Crosshair, ExternalLink,
+  FileImage, Filter, Image as ImageIcon, Landmark, Layers3, LocateFixed, LogOut, Map, MapPin, Menu, Phone, Plus,
   Search, Settings, ShipWheel, Signpost, Trash2, UserRound, Video, WalletCards, Wrench, X,
 } from "lucide-react";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -32,6 +32,8 @@ type Incident = MapItem & {
   reporterPhone: string | null;
 };
 type EvidenceSelection = { file: File; mimeType: string; previewUrl: string };
+type StaffLocationSource = "gps" | "ip" | "manual_map";
+type StaffLocationState = "idle" | "locating" | "ready" | "error";
 
 const nav = [
   ["Vue d’ensemble", BarChart3], ["Carte & réseau", Map], ["Signalements", AlertTriangle],
@@ -84,6 +86,12 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
   const [evidenceFiles, setEvidenceFiles] = useState<EvidenceSelection[]>([]);
   const [evidence, setEvidence] = useState(initialData.evidence);
   const [uploadMessage, setUploadMessage] = useState("");
+  const [latitudeText, setLatitudeText] = useState("");
+  const [longitudeText, setLongitudeText] = useState("");
+  const [locationSource, setLocationSource] = useState<StaffLocationSource | null>(null);
+  const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
+  const [locationState, setLocationState] = useState<StaffLocationState>("idle");
+  const [locationMessage, setLocationMessage] = useState("La position sera détectée à l’ouverture du formulaire.");
   const [profileOpen, setProfileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -129,13 +137,73 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
   const generatedAt = new Date(initialData.generatedAt).getTime();
   const paymentAlerts = unpaid.filter((row) => (generatedAt - new Date(row.received_at).getTime()) / 86_400_000 >= 50).length;
 
+  async function locateFromIp() {
+    try {
+      const response = await fetch("/api/location", { cache: "no-store" });
+      const payload = await response.json();
+      if (!response.ok || typeof payload.latitude !== "number" || typeof payload.longitude !== "number") {
+        throw new Error(payload.error || "Position IP indisponible");
+      }
+      setLatitudeText(payload.latitude.toFixed(6));
+      setLongitudeText(payload.longitude.toFixed(6));
+      setLocationSource("ip");
+      setLocationAccuracy(null);
+      setLocationState("ready");
+      setLocationMessage(`Position IP approximative détectée${payload.city ? ` près de ${payload.city}` : ""}. Vérifiez les coordonnées avant l’enregistrement.`);
+    } catch {
+      setLocationState("error");
+      setLocationMessage("La position automatique est indisponible. Saisissez les coordonnées manuellement ou appuyez sur « Me localiser » pour réessayer.");
+    }
+  }
+
+  function locateDevice() {
+    setLocationState("locating");
+    setLocationMessage("Recherche de votre position précise…");
+    if (!("geolocation" in navigator)) {
+      setLocationMessage("GPS indisponible. Recherche d’une position approximative par IP…");
+      void locateFromIp();
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitudeText(position.coords.latitude.toFixed(6));
+        setLongitudeText(position.coords.longitude.toFixed(6));
+        setLocationSource("gps");
+        setLocationAccuracy(Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null);
+        setLocationState("ready");
+        setLocationMessage(`Position précise détectée${Number.isFinite(position.coords.accuracy) ? ` à environ ${Math.round(position.coords.accuracy)} m` : ""}.`);
+      },
+      () => {
+        setLocationMessage("GPS refusé ou indisponible. Recherche d’une position approximative par IP…");
+        void locateFromIp();
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 },
+    );
+  }
+
+  function editCoordinate(axis: "latitude" | "longitude", value: string) {
+    if (axis === "latitude") setLatitudeText(value);
+    else setLongitudeText(value);
+    setLocationSource("manual_map");
+    setLocationAccuracy(null);
+    setLocationState("ready");
+    setLocationMessage("Coordonnées modifiées manuellement. Vérifiez leur exactitude avant l’enregistrement.");
+  }
+
   function openIncidentModal() {
     setFormError("");
     setUploadMessage("");
+    setLatitudeText("");
+    setLongitudeText("");
+    setLocationSource(null);
+    setLocationAccuracy(null);
+    setLocationState("idle");
+    setLocationMessage("Recherche de votre position…");
     evidenceFilesRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
     setEvidenceFiles([]);
     setClientRequestId(crypto.randomUUID());
     setModal(true);
+    locateDevice();
   }
 
   function selectEvidence(event: ChangeEvent<HTMLInputElement>) {
@@ -237,7 +305,8 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
           reporterLastName: String(data.get("reporterLastName") || ""),
           reporterPhone: String(data.get("reporterPhone") || ""),
           severity: String(data.get("severity")), latitude: Number(data.get("latitude")),
-          longitude: Number(data.get("longitude")),
+          longitude: Number(data.get("longitude")), locationSource,
+          locationAccuracy,
         }),
       });
       const payload = await response.json();
@@ -306,7 +375,8 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
         <label>Intitulé<input name="title" required maxLength={160} autoFocus placeholder="Ex. Nid-de-poule important" /></label>
         <div className="form-row"><label>Catégorie<select name="category"><option>Voirie</option><option>Feux</option><option>Accotement</option><option>Ouvrage</option><option>Bac</option><option>Péage / pesage</option><option>Orpaillage clandestin</option><option>Insécurité</option><option>Nuisance sonore</option></select></label><label>Priorité<select name="severity"><option>Critique</option><option>Élevée</option><option>Modérée</option></select></label></div>
         <label>Localisation<input name="location" required maxLength={240} placeholder="Route, commune ou point de repère" /></label>
-        <div className="form-row"><label>Latitude<input name="latitude" type="number" step="any" min="-90" max="90" required defaultValue="5.348" /></label><label>Longitude<input name="longitude" type="number" step="any" min="-180" max="180" required defaultValue="-4.006" /></label></div>
+        <div className="form-row"><label>Latitude<input name="latitude" type="number" inputMode="decimal" step="any" min="-90" max="90" required value={latitudeText} onChange={(event) => editCoordinate("latitude", event.target.value)} placeholder="Détection automatique…" /></label><label>Longitude<input name="longitude" type="number" inputMode="decimal" step="any" min="-180" max="180" required value={longitudeText} onChange={(event) => editCoordinate("longitude", event.target.value)} placeholder="Détection automatique…" /></label></div>
+        <div className={`staff-location-status ${locationState}`} role="status"><Crosshair /><span>{locationMessage}</span><button type="button" onClick={locateDevice} disabled={locationState === "locating"}><LocateFixed />{locationState === "locating" ? "Localisation…" : "Me localiser"}</button></div>
         <div className="form-row"><label>Prénom du déclarant (facultatif)<input name="reporterFirstName" maxLength={100} autoComplete="given-name" /></label><label>Nom du déclarant (facultatif)<input name="reporterLastName" maxLength={100} autoComplete="family-name" /></label></div>
         <label>Téléphone du déclarant (facultatif)<input name="reporterPhone" type="tel" inputMode="tel" maxLength={30} autoComplete="tel" placeholder="Ex. +225 07 00 00 00 00" /></label>
         <label>Observations<textarea name="observations" maxLength={2000} placeholder="Décrivez le problème et les risques…" /></label>

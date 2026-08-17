@@ -9,6 +9,7 @@ Plateforme citoyenne de signalement géolocalisé et de pilotage opérationnel e
 - Supabase pour PostgreSQL et l’authentification
 - Supabase Storage privé pour les photos et vidéos justificatives
 - Leaflet / OpenStreetMap pour la cartographie
+- Géolocalisation GPS du navigateur avec repli IP approximatif fourni par Vercel
 
 ## Installation locale
 
@@ -66,6 +67,7 @@ La clé secrète Supabase et la clé `service_role` ne doivent jamais être plac
 - Les agents et la Direction peuvent qualifier les signalements citoyens.
 - Les citoyens n’accèdent jamais aux finances, interventions ou données patrimoniales internes.
 - Les écritures API vérifient la session et valident les coordonnées et catégories.
+- Le formulaire interne détecte automatiquement les coordonnées, indique leur source (GPS, IP ou saisie manuelle) et ne préremplit plus de position fictive.
 - Les preuves sont limitées à 3 fichiers de 40 Mo, stockées dans un bucket privé et protégées par RLS.
 - Seul le déclarant et le personnel autorisé peuvent consulter les preuves d’un signalement.
 - Un identifiant de requête empêche les doublons lors d’un nouvel envoi réseau.
