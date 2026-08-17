@@ -1,4 +1,5 @@
 import Link from "next/link";
+import BrandLogo from "../../brand-logo";
 import { registerCitizen } from "./actions";
 
 export default async function CitizenRegistration({
@@ -9,7 +10,7 @@ export default async function CitizenRegistration({
   const { error, success } = await searchParams;
   return <main className="citizen-auth-page">
     <section className="citizen-auth-intro">
-      <div className="citizen-mini-brand"><span>FER</span><strong>Signale CI</strong></div>
+      <div className="citizen-mini-brand logo-mode"><BrandLogo className="registration-logo" priority /></div>
       <h1>Ensemble, améliorons notre cadre de vie.</h1>
       <p>Signalez un problème depuis votre téléphone. Votre position sera utilisée uniquement après votre autorisation.</p>
       <div className="citizen-auth-steps"><span>1</span><p><strong>Décrivez</strong><small>le problème observé</small></p><span>2</span><p><strong>Localisez</strong><small>le point avec votre GPS</small></p><span>3</span><p><strong>Suivez</strong><small>le traitement du signalement</small></p></div>

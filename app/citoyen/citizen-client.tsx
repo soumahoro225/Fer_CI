@@ -15,6 +15,7 @@ import {
 } from "../../lib/evidence";
 import { createClient } from "../../lib/supabase/client";
 import { logout } from "../login/actions";
+import BrandLogo from "../brand-logo";
 import type { CitizenPosition } from "./location-map";
 
 const LocationMap = dynamic(() => import("./location-map"), {
@@ -301,7 +302,7 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
 
   return <main className="citizen-shell">
     <header className="citizen-header">
-      <div className="citizen-logo"><span>FER</span><div><strong>Signale CI</strong><small>Espace citoyen</small></div></div>
+      <div className="citizen-logo"><BrandLogo className="citizen-header-logo" priority /><div><strong>Signale CI</strong><small>Espace citoyen</small></div></div>
       <div className="citizen-user"><CircleUserRound /><div><strong>{initialData.user.fullName}</strong><small>{initialData.user.phone}</small></div><form action={logout}><button aria-label="Se déconnecter" title="Se déconnecter"><LogOut /></button></form></div>
     </header>
 

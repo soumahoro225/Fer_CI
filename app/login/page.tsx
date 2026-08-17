@@ -1,11 +1,12 @@
 import Link from "next/link";
+import BrandLogo from "../brand-logo";
 import { login } from "./actions";
 
 export default async function Login({ searchParams }: { searchParams: Promise<{ error?: string; message?: string }> }) {
   const { error, message } = await searchParams;
   return <main className="login-page">
     <form action={login} className="login-card">
-      <div className="brand login-brand"><div className="brand-mark"><span>FER</span><i /></div><div><strong>Signale CI</strong><small>Signalement géolocalisé</small></div></div>
+      <BrandLogo className="login-logo" priority />
       <div><h1>Connexion</h1><p>Accédez à votre espace de gestion ou à votre espace citoyen.</p></div>
       {error ? <div className="login-error" role="alert">{error}</div> : null}
       {message ? <div className="success-message" role="status">{message}</div> : null}

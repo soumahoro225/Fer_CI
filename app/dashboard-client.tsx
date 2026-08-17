@@ -15,6 +15,7 @@ import {
 } from "../lib/evidence";
 import { createClient } from "../lib/supabase/client";
 import { logout } from "./login/actions";
+import BrandLogo from "./brand-logo";
 import type { MapItem } from "./map-view";
 
 const MapView = dynamic(() => import("./map-view"), {
@@ -358,7 +359,7 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
   return <main className="app-shell">
     {mobileOpen && <button className="mobile-backdrop" aria-label="Fermer la navigation" onClick={() => setMobileOpen(false)} />}
     <aside className={`sidebar ${mobileOpen ? "open" : ""}`}>
-      <div className="brand"><div className="brand-mark"><span>FER</span><i /></div><div><strong>Signale CI</strong><small>Pilotage territorial</small></div></div>
+      <div className="brand brand-with-logo"><BrandLogo className="sidebar-logo" priority /></div>
       <nav aria-label="Navigation principale"><p>PILOTAGE</p>{nav.map(([label, Icon]) => <button key={label} className={active === label ? "active" : ""} onClick={() => { setActive(label); setMobileOpen(false); }}><Icon size={18} />{label}{label === "Signalements" && <em>{items.length}</em>}</button>)}<p>ADMINISTRATION</p><button disabled title="Bientôt disponible"><Wrench size={18} />Équipes & prestataires</button><button onClick={() => { setAccountOpen(true); setMobileOpen(false); }}><Settings size={18} />Mon compte</button></nav>
       <div className="side-foot"><span /><div><strong>Système opérationnel</strong><small>Données Supabase actives</small></div></div>
     </aside>
