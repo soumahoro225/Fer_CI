@@ -4,6 +4,7 @@ import "./globals.css";
 import "./citizen.css";
 import "./signalements.css";
 import "./brand.css";
+import "./category-icons.css";
 
 const sans = Geist({ variable: "--font-sans", subsets: ["latin"] });
 const mono = Geist_Mono({ variable: "--font-mono", subsets: ["latin"] });

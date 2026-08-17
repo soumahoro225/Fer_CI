@@ -16,6 +16,7 @@ import {
 import { createClient } from "../../lib/supabase/client";
 import { logout } from "../login/actions";
 import BrandLogo from "../brand-logo";
+import { CategoryIcon, CategoryPicker } from "../category-icon";
 import type { CitizenPosition } from "./location-map";
 
 const LocationMap = dynamic(() => import("./location-map"), {
@@ -316,7 +317,7 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
     <section className="citizen-content">
       <div className="citizen-section-head"><div><small>MES SIGNALEMENTS</small><h2>Suivre mes demandes</h2><p>Vous ne voyez ici que les signalements créés avec votre compte.</p></div><span>{incidents.length}</span></div>
       {incidents.length ? <div className="citizen-report-list">{incidents.map((item) => <article key={item.id} className="citizen-report-card">
-        <div className="citizen-report-icon"><MapPin /></div>
+        <CategoryIcon category={item.category} />
         <div className="citizen-report-copy"><div><strong>{item.title}</strong><span className={`citizen-status ${statusClass(item.status)}`}>{statusLabels[item.status] || item.status}</span></div><p>{item.location}</p><small>{item.reference} · {reportDate.format(new Date(item.created_at))}</small></div>
         <ChevronRight />
       </article>)}</div> : <div className="citizen-empty"><span><FileClock /></span><h3>Aucun signalement pour le moment</h3><p>Votre premier signalement et son état de traitement apparaîtront ici.</p><button onClick={openReport}><Plus />Faire mon premier signalement</button></div>}
@@ -327,7 +328,7 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
         <div className="citizen-form-head"><div><small>NOUVEAU SIGNALEMENT</small><h2 id="citizen-report-title">Que se passe-t-il ?</h2><p>Décrivez le problème puis confirmez sa position.</p></div><button type="button" aria-label="Fermer" onClick={() => setReportOpen(false)} disabled={submitting}><X /></button></div>
         {formError ? <div className="login-error" role="alert">{formError}</div> : null}
         <section className="citizen-form-section"><div className="citizen-step"><span>1</span><div><strong>Décrire le problème</strong><small>Informations visibles par les équipes de traitement</small></div></div>
-          <label>Catégorie du signalement<select name="category" required defaultValue="Voirie"><option>Voirie</option><option>Feux</option><option>Accotement</option><option>Ouvrage</option><option>Bac</option><option>Péage / pesage</option><option>Orpaillage clandestin</option><option>Insécurité</option><option>Nuisance sonore</option></select></label>
+          <CategoryPicker />
           <label>Intitulé<input name="title" required minLength={3} maxLength={160} autoFocus placeholder="Ex. Gros nid-de-poule sur la chaussée" /></label>
           <label>Commune ou point de repère<input name="location" required minLength={2} maxLength={240} placeholder="Ex. Cocody, près du carrefour…" /></label>
           <label>Informations complémentaires<textarea name="observations" maxLength={2000} placeholder="Précisez la taille, le danger ou tout repère utile…" /></label>
