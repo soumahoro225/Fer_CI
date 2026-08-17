@@ -39,8 +39,8 @@ NEXT_PUBLIC_SITE_URL=http://localhost:3000
 
 Dans **Authentication → URL Configuration**, configurer :
 
-- Site URL : `https://fer-ci.vercel.app`
-- Redirect URL : `https://fer-ci.vercel.app/auth/callback`
+- Site URL : `https://geosignale-ci.vercel.app`
+- Redirect URL : `https://geosignale-ci.vercel.app/auth/callback`
 
 Pour une ouverture publique, activer également la protection contre les mots de passe compromis dans les paramètres Auth Supabase.
 
