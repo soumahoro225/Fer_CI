@@ -12,8 +12,12 @@ export const incidentCategories = [
 
 const positions = new Map<string, string>(incidentCategories.map((item) => [item.value, item.position]));
 
+export function categoryIconClass(category: string) {
+  return `category-icon-${positions.get(category) ?? "c1-r1"}`;
+}
+
 export function CategoryIcon({ category, className = "" }: { category: string; className?: string }) {
-  return <span className={`category-icon category-icon-${positions.get(category) ?? "c1-r1"} ${className}`} aria-hidden="true" />;
+  return <span className={`category-icon ${categoryIconClass(category)} ${className}`} aria-hidden="true" />;
 }
 
 export function CategoryPicker({ legend = "Catégorie du signalement" }: { legend?: string }) {
