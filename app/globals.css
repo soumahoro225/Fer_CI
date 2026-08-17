@@ -40,3 +40,18 @@
 .kicon.category-kicon .category-icon{transform:scale(.64)}
 @media(max-width:1050px){.kpis{grid-template-columns:1fr 1fr}}
 @media(max-width:460px){.kpis{grid-template-columns:1fr}}
+
+/* Filtres dynamiques de la carte opérationnelle. */
+.map-actions>button.active{border-color:#8bc5b7;background:#eaf5f1;color:var(--green)}
+.map-actions>button em{min-width:16px;height:16px;border-radius:8px;background:var(--green);color:#fff;display:grid;place-items:center;font-size:8px;font-style:normal;font-weight:800}
+.overview-filter-menu{position:absolute;right:0;top:35px;z-index:650;width:min(350px,calc(100vw - 80px));background:#fff;border:1px solid var(--line);border-radius:10px;box-shadow:0 14px 34px #193a3230;padding:13px;text-align:left}
+.overview-filter-menu>div{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:11px}
+.overview-filter-menu>div strong{font-size:11px}
+.overview-filter-menu>div span{font-size:8px;color:var(--green);background:#e7f3ef;border-radius:12px;padding:4px 7px;font-weight:750}
+.overview-filter-menu label{display:flex;flex-direction:column;gap:5px;margin-bottom:9px;color:#5d706a;font-size:9px;font-weight:750}
+.overview-filter-menu select{width:100%;height:39px;border:1px solid #d7e1de;border-radius:8px;background:#fff;color:#263d38;padding:0 9px;font-size:10px;outline:none}
+.overview-filter-menu select:focus{border-color:var(--green2);box-shadow:0 0 0 3px #16786b13}
+.overview-filter-reset{width:100%;min-height:38px!important;justify-content:center!important;border-color:#d8e2df!important;background:#f6f9f8!important;color:var(--green)!important}
+.overview-filter-reset svg{width:14px}
+.overview-filter-reset:disabled{opacity:.45;cursor:not-allowed}
+@media(max-width:460px){.overview-filter-menu{width:calc(100vw - 42px);right:-2px}.overview-filter-menu label,.overview-filter-menu>div{font-size:9px}.overview-filter-reset{font-size:9px!important}}
