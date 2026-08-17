@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { parseReporterContact } from "../../../lib/reporter-contact";
 import { createClient } from "../../../lib/supabase/server";
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 async function authorizedClient() {
   const supabase = await createClient();
   const { data: auth } = await supabase.auth.getUser();
@@ -37,10 +39,20 @@ export async function POST(request: Request) {
   const latitude = Number(body.latitude);
   const longitude = Number(body.longitude);
   const reporterContact = parseReporterContact(body);
-  if (!title || title.length > 160 || !location || location.length > 240 || observations.length > 2000 || !["Voirie", "Feux", "Accotement", "Ouvrage", "Bac", "Péage / pesage", "Orpaillage clandestin", "Insécurité", "Nuisance sonore"].includes(category) || !["Critique", "Élevée", "Modérée"].includes(severity) || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !reporterContact.valid) {
+  const clientRequestId = typeof body.clientRequestId === "string" ? body.clientRequestId : "";
+  if (!title || title.length > 160 || !location || location.length > 240 || observations.length > 2000 || !["Voirie", "Feux", "Accotement", "Ouvrage", "Bac", "Péage / pesage", "Orpaillage clandestin", "Insécurité", "Nuisance sonore"].includes(category) || !["Critique", "Élevée", "Modérée"].includes(severity) || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !uuidPattern.test(clientRequestId) || !reporterContact.valid) {
     return NextResponse.json({ error: "Données de signalement invalides" }, { status: 400 });
   }
-  const { data, error } = await supabase.from("incidents").insert({ reference: `FER-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, title, category, location, observations, ...reporterContact.values, severity, latitude, longitude, created_by: user.id }).select().single();
+  const { data, error } = await supabase.from("incidents").insert({ reference: `FER-${crypto.randomUUID().slice(0, 8).toUpperCase()}`, title, category, location, observations: observations || null, ...reporterContact.values, severity, latitude, longitude, client_request_id: clientRequestId, created_by: user.id }).select().single();
+  if (error?.code === "23505") {
+    const { data: existing } = await supabase
+      .from("incidents")
+      .select()
+      .eq("client_request_id", clientRequestId)
+      .eq("created_by", user.id)
+      .maybeSingle();
+    if (existing) return NextResponse.json({ incident: existing, duplicate: true });
+  }
   if (error) {
     console.error("incidents.insert", error);
     return NextResponse.json({ error: "Enregistrement impossible" }, { status: 500 });

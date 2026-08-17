@@ -76,7 +76,7 @@ export type EvidenceRecord = {
 
 export type DashboardData = {
   generatedAt: string;
-  user: { email: string; fullName: string; role: FerRole };
+  user: { id: string; email: string; fullName: string; role: FerRole };
   incidents: IncidentRecord[];
   interventions: InterventionRecord[];
   assets: AssetRecord[];
@@ -145,6 +145,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
   return {
     generatedAt: new Date().toISOString(),
     user: {
+      id: auth.user.id,
       email: auth.user.email ?? "",
       fullName: profile.full_name,
       role: profile.role,

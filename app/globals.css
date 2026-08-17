@@ -25,3 +25,6 @@
 
 @media(max-width:900px){.incident-detail-body{grid-template-columns:1fr}.incident-summary{border-right:0;border-bottom:1px solid var(--line);padding:0 0 16px}.incident-evidence-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:560px){.incident-evidence-grid{grid-template-columns:1fr}.incident-evidence-grid article>img,.incident-evidence-grid article>video{height:180px}}
+
+/* Le formulaire interne peut contenir des aperçus photo/vidéo : il reste utilisable sur tous les écrans. */
+.modal{max-height:calc(100dvh - 40px);overflow-y:auto;overscroll-behavior:contain}.incident-modal{width:min(680px,100%)}

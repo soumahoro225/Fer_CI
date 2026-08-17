@@ -3,13 +3,17 @@
 
 import dynamic from "next/dynamic";
 import {
-  AlertTriangle, BarChart3, Bell, ChevronDown, ClipboardList, Construction, ExternalLink,
-  FileImage, Filter, Landmark, Layers3, LogOut, Map, MapPin, Menu, Phone, Plus,
-  Search, Settings, ShipWheel, Signpost, UserRound, Video, WalletCards, Wrench, X,
+  AlertTriangle, BarChart3, Bell, Camera, ChevronDown, ClipboardList, Construction, ExternalLink,
+  FileImage, Filter, Image as ImageIcon, Landmark, Layers3, LogOut, Map, MapPin, Menu, Phone, Plus,
+  Search, Settings, ShipWheel, Signpost, Trash2, UserRound, Video, WalletCards, Wrench, X,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { DashboardData } from "../lib/dashboard";
-import { formatEvidenceSize } from "../lib/evidence";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import type { DashboardData, EvidenceRecord } from "../lib/dashboard";
+import {
+  EVIDENCE_BUCKET, EVIDENCE_MIME_TYPES, MAX_EVIDENCE_FILES, MAX_EVIDENCE_FILE_SIZE,
+  evidenceExtension, evidenceMediaType, evidenceMimeType, formatEvidenceSize,
+} from "../lib/evidence";
+import { createClient } from "../lib/supabase/client";
 import { logout } from "./login/actions";
 import type { MapItem } from "./map-view";
 
@@ -27,6 +31,7 @@ type Incident = MapItem & {
   reporterLastName: string | null;
   reporterPhone: string | null;
 };
+type EvidenceSelection = { file: File; mimeType: string; previewUrl: string };
 
 const nav = [
   ["Vue d’ensemble", BarChart3], ["Carte & réseau", Map], ["Signalements", AlertTriangle],
@@ -75,30 +80,43 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
   const [query, setQuery] = useState("");
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [clientRequestId, setClientRequestId] = useState("");
+  const [evidenceFiles, setEvidenceFiles] = useState<EvidenceSelection[]>([]);
+  const [evidence, setEvidence] = useState(initialData.evidence);
+  const [uploadMessage, setUploadMessage] = useState("");
   const [profileOpen, setProfileOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const newIncidentButton = useRef<HTMLButtonElement>(null);
+  const evidenceFilesRef = useRef<EvidenceSelection[]>([]);
+
+  useEffect(() => {
+    evidenceFilesRef.current = evidenceFiles;
+  }, [evidenceFiles]);
+
+  useEffect(() => () => {
+    evidenceFilesRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+  }, []);
 
   useEffect(() => {
     if (!modal && !accountOpen) return;
     const close = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setModal(false);
+        if (!submitting) setModal(false);
         setAccountOpen(false);
         newIncidentButton.current?.focus();
       }
     };
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
-  }, [modal, accountOpen]);
+  }, [modal, accountOpen, submitting]);
 
   const filtered = useMemo(
     () => items.filter((item) => `${item.title} ${item.location} ${item.category} ${item.id} ${reporterContact(item)}`.toLowerCase().includes(query.toLowerCase())),
     [items, query],
   );
   const selectedEvidence = selected
-    ? initialData.evidence.filter((evidence) => evidence.incident_id === selected.databaseId)
+    ? evidence.filter((item) => item.incident_id === selected.databaseId)
     : [];
   const totalBudget = initialData.interventions.reduce((sum, row) => sum + Number(row.budget_fcfa), 0);
   const totalCommitted = initialData.interventions.reduce((sum, row) => sum + Number(row.committed_fcfa), 0);
@@ -110,6 +128,95 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
   const engagementRate = totalBudget > 0 ? Math.round((totalCommitted / totalBudget) * 1000) / 10 : 0;
   const generatedAt = new Date(initialData.generatedAt).getTime();
   const paymentAlerts = unpaid.filter((row) => (generatedAt - new Date(row.received_at).getTime()) / 86_400_000 >= 50).length;
+
+  function openIncidentModal() {
+    setFormError("");
+    setUploadMessage("");
+    evidenceFilesRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    setEvidenceFiles([]);
+    setClientRequestId(crypto.randomUUID());
+    setModal(true);
+  }
+
+  function selectEvidence(event: ChangeEvent<HTMLInputElement>) {
+    const incoming = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    setFormError("");
+    if (!incoming.length) return;
+    if (evidenceFiles.length + incoming.length > MAX_EVIDENCE_FILES) {
+      setFormError(`Vous pouvez joindre au maximum ${MAX_EVIDENCE_FILES} photos ou vidéos.`);
+      return;
+    }
+    const next: EvidenceSelection[] = [];
+    for (const file of incoming) {
+      const mimeType = evidenceMimeType(file);
+      if (!mimeType || !evidenceMediaType(mimeType)) {
+        next.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+        setFormError(`Le fichier « ${file.name} » n’est pas une photo ou une vidéo acceptée.`);
+        return;
+      }
+      if (!file.size || file.size > MAX_EVIDENCE_FILE_SIZE) {
+        next.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+        setFormError(`Le fichier « ${file.name} » dépasse la limite de 40 Mo.`);
+        return;
+      }
+      next.push({ file, mimeType, previewUrl: URL.createObjectURL(file) });
+    }
+    setEvidenceFiles((current) => [...current, ...next]);
+  }
+
+  function removeEvidence(index: number) {
+    setEvidenceFiles((current) => {
+      URL.revokeObjectURL(current[index].previewUrl);
+      return current.filter((_, itemIndex) => itemIndex !== index);
+    });
+  }
+
+  async function uploadEvidence(incident: Incident): Promise<EvidenceRecord[]> {
+    if (!evidenceFiles.length) return [];
+    const supabase = createClient();
+    const uploaded: EvidenceRecord[] = [];
+    for (let index = 0; index < evidenceFiles.length; index += 1) {
+      const selection = evidenceFiles[index];
+      const mediaType = evidenceMediaType(selection.mimeType);
+      if (!mediaType) throw new Error("Type de preuve invalide");
+      setUploadMessage(`Envoi de la preuve ${index + 1} sur ${evidenceFiles.length}…`);
+      const storagePath = `${initialData.user.id}/${incident.databaseId}/${clientRequestId}-${index}.${evidenceExtension(selection.file)}`;
+      const { error: uploadError } = await supabase.storage.from(EVIDENCE_BUCKET).upload(storagePath, selection.file, {
+        cacheControl: "3600",
+        contentType: selection.mimeType,
+        upsert: false,
+      });
+      const uploadStatus = Number((uploadError as { statusCode?: string | number } | null)?.statusCode);
+      const alreadyUploaded = uploadStatus === 409 || /already exists|duplicate/i.test(uploadError?.message ?? "");
+      if (uploadError && !alreadyUploaded) throw uploadError;
+
+      const metadata = {
+        incident_id: incident.databaseId,
+        storage_path: storagePath,
+        media_type: mediaType,
+        mime_type: selection.mimeType,
+        size_bytes: selection.file.size,
+        original_name: (selection.file.name.trim() || `preuve-${index + 1}`).slice(0, 200),
+        uploaded_by: initialData.user.id,
+      };
+      const fields = "id,incident_id,media_type,mime_type,size_bytes,original_name,storage_path,created_at";
+      const { data: inserted, error: metadataError } = await supabase.from("incident_evidence").insert(metadata).select(fields).single();
+      let row = inserted;
+      if (metadataError?.code === "23505") {
+        const { data: existing, error: existingError } = await supabase.from("incident_evidence").select(fields).eq("storage_path", storagePath).single();
+        if (existingError) throw existingError;
+        row = existing;
+      } else if (metadataError) {
+        throw metadataError;
+      }
+      if (!row) throw new Error("Métadonnées de preuve indisponibles");
+      const { data: signed, error: signedError } = await supabase.storage.from(EVIDENCE_BUCKET).createSignedUrl(storagePath, 3600);
+      if (signedError) throw signedError;
+      uploaded.push({ ...row, media_type: row.media_type as "image" | "video", signed_url: signed.signedUrl });
+    }
+    return uploaded;
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -123,6 +230,7 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          clientRequestId,
           title: String(data.get("title")), category: String(data.get("category")),
           location: String(data.get("location")), observations: String(data.get("observations")),
           reporterFirstName: String(data.get("reporterFirstName") || ""),
@@ -146,10 +254,21 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
         lat: row.latitude, lng: row.longitude,
         color: colorForSeverity(row.severity),
       };
-      setItems((current) => [incident, ...current]);
+      setItems((current) => current.some((item) => item.databaseId === incident.databaseId) ? current : [incident, ...current]);
       setSelected(incident);
+      try {
+        const uploaded = await uploadEvidence(incident);
+        if (uploaded.length) setEvidence((current) => [...current, ...uploaded]);
+      } catch (error) {
+        console.error("staff.evidence.upload", error);
+        setFormError(`Le signalement ${incident.id} est enregistré, mais toutes les preuves n’ont pas pu être envoyées. Vérifiez votre réseau puis appuyez de nouveau sur « Enregistrer ».`);
+        return;
+      }
       setModal(false);
       form.reset();
+      evidenceFiles.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+      setEvidenceFiles([]);
+      setUploadMessage("");
     } catch {
       setFormError("Connexion au serveur impossible");
     } finally {
@@ -169,7 +288,7 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
     </aside>
     <section className="workspace">
       <header className="topbar"><button className="mobile" aria-label="Ouvrir la navigation" onClick={() => setMobileOpen(true)}><Menu /></button><div><p>Plateforme de pilotage</p><h1>{active}</h1></div><div className="top-actions"><label className="search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Route, ouvrage, décompte…" aria-label="Rechercher" /></label><button className="icon" aria-label="Notifications" disabled><Bell size={19} /></button><div className="profile-wrap"><button className="profile" aria-expanded={profileOpen} onClick={() => setProfileOpen((open) => !open)}><span>{initials(initialData.user.fullName)}</span><div><strong>{initialData.user.fullName}</strong><small>{initialData.user.role === "direction" ? "Direction" : "Agent technique"}</small></div><ChevronDown size={15} /></button>{profileOpen && <div className="profile-menu"><button onClick={() => { setAccountOpen(true); setProfileOpen(false); }}><UserRound size={16} />Mon compte</button><form action={logout}><button type="submit"><LogOut size={16} />Se déconnecter</button></form></div>}</div></div></header>
-      <div className="content"><section className="heading"><div><p>{currentDate}</p><h2>{currentTitle}</h2><span>Les chiffres ci-dessous proviennent de la base Signale CI.</span></div><div><button ref={newIncidentButton} className="primary" onClick={() => setModal(true)}><Plus size={18} />Nouveau signalement</button></div></section>
+      <div className="content"><section className="heading"><div><p>{currentDate}</p><h2>{currentTitle}</h2><span>Les chiffres ci-dessous proviennent de la base Signale CI.</span></div><div><button ref={newIncidentButton} className="primary" onClick={openIncidentModal}><Plus size={18} />Nouveau signalement</button></div></section>
         {active !== "Vue d’ensemble" && <section className="module-banner"><strong>{active}</strong><span>Ce module est en cours d’enrichissement. Les données réelles disponibles restent visibles ci-dessous.</span></section>}
         <section className="objectives"><span>OBJECTIFS FER</span><div><p><i className={engagementRate <= 100 ? "ok" : "warn"} />Engagements / budget <b>{engagementRate}%</b></p><p><i className={paymentAlerts ? "warn" : "ok"} />Décomptes proches de 60 jours <b>{paymentAlerts}</b></p><p><i className="ok" />Patrimoine inventorié <b>{initialData.assets.length}</b></p><p><i className="ok" />Ressources enregistrées <b>{initialData.resources.length}</b></p></div></section>
         <section className="kpis"><article><span className="kicon red"><AlertTriangle /></span><div><small>Signalements ouverts</small><strong>{openIncidents}</strong><p>{items.length} signalement(s) au total</p></div></article><article><span className="kicon amber"><Construction /></span><div><small>Interventions en cours</small><strong>{runningInterventions}</strong><p>{initialData.interventions.length} intervention(s) enregistrée(s)</p></div></article><article><span className="kicon green"><Landmark /></span><div><small>Ressources mobilisées</small><strong>{formatFcfa(totalResources)}</strong><p>Données déclarées dans Signale CI</p></div></article><article><span className="kicon blue"><WalletCards /></span><div><small>Décomptes à régler</small><strong>{formatFcfa(unpaidAmount)}</strong><p>{unpaid.length} décompte(s) ouvert(s)</p></div></article></section>
@@ -180,7 +299,23 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
           <article className="card finance"><div className="card-head"><div><h3>Maîtrise financière</h3><p>Engagements issus des interventions</p></div></div><div className="donut-row"><div className="donut" style={{ background: `conic-gradient(var(--green2) 0 ${Math.min(engagementRate, 100)}%,#e4ece9 ${Math.min(engagementRate, 100)}%)` }}><strong>{engagementRate}%</strong><span>engagé</span></div><div className="finance-data"><p><span>Budget</span><b>{formatFcfa(totalBudget)}</b></p><p><span>Engagé</span><b>{formatFcfa(totalCommitted)}</b></p><p><span>À régler</span><b>{formatFcfa(unpaidAmount)}</b></p><progress value={Math.min(engagementRate, 100)} max="100" /></div></div>{!totalBudget && <div className="finance-note">Aucun budget d’intervention enregistré.</div>}</article></section>
       </div>
     </section>
-    {modal && <div className="modal-bg" role="presentation" onMouseDown={() => setModal(false)}><form className="modal" role="dialog" aria-modal="true" aria-labelledby="incident-title" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}><div className="modal-head"><div><h3 id="incident-title">Nouveau signalement</h3><p>Enregistrer un problème géolocalisé</p></div><button type="button" aria-label="Fermer" onClick={() => setModal(false)}><X /></button></div>{formError && <div className="login-error" role="alert">{formError}</div>}<label>Intitulé<input name="title" required maxLength={160} autoFocus placeholder="Ex. Nid-de-poule important" /></label><div className="form-row"><label>Catégorie<select name="category"><option>Voirie</option><option>Feux</option><option>Accotement</option><option>Ouvrage</option><option>Bac</option><option>Péage / pesage</option><option>Orpaillage clandestin</option><option>Insécurité</option><option>Nuisance sonore</option></select></label><label>Priorité<select name="severity"><option>Critique</option><option>Élevée</option><option>Modérée</option></select></label></div><label>Localisation<input name="location" required maxLength={240} placeholder="Route, commune ou point de repère" /></label><div className="form-row"><label>Latitude<input name="latitude" type="number" step="any" min="-90" max="90" required defaultValue="5.348" /></label><label>Longitude<input name="longitude" type="number" step="any" min="-180" max="180" required defaultValue="-4.006" /></label></div><div className="form-row"><label>Prénom du déclarant (facultatif)<input name="reporterFirstName" maxLength={100} autoComplete="given-name" /></label><label>Nom du déclarant (facultatif)<input name="reporterLastName" maxLength={100} autoComplete="family-name" /></label></div><label>Téléphone du déclarant (facultatif)<input name="reporterPhone" type="tel" inputMode="tel" maxLength={30} autoComplete="tel" placeholder="Ex. +225 07 00 00 00 00" /></label><label>Observations<textarea name="observations" maxLength={2000} placeholder="Décrivez le problème et les risques…" /></label><div className="modal-actions"><button type="button" className="secondary" onClick={() => setModal(false)}>Annuler</button><button className="primary" disabled={submitting}>{submitting ? "Enregistrement…" : "Enregistrer"}</button></div></form></div>}
+    {modal && <div className="modal-bg" role="presentation" onMouseDown={() => { if (!submitting) setModal(false); }}>
+      <form className="modal incident-modal" role="dialog" aria-modal="true" aria-labelledby="incident-title" onSubmit={submit} onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-head"><div><h3 id="incident-title">Nouveau signalement</h3><p>Enregistrer un problème géolocalisé</p></div><button type="button" aria-label="Fermer" onClick={() => setModal(false)} disabled={submitting}><X /></button></div>
+        {formError && <div className="login-error" role="alert">{formError}</div>}
+        <label>Intitulé<input name="title" required maxLength={160} autoFocus placeholder="Ex. Nid-de-poule important" /></label>
+        <div className="form-row"><label>Catégorie<select name="category"><option>Voirie</option><option>Feux</option><option>Accotement</option><option>Ouvrage</option><option>Bac</option><option>Péage / pesage</option><option>Orpaillage clandestin</option><option>Insécurité</option><option>Nuisance sonore</option></select></label><label>Priorité<select name="severity"><option>Critique</option><option>Élevée</option><option>Modérée</option></select></label></div>
+        <label>Localisation<input name="location" required maxLength={240} placeholder="Route, commune ou point de repère" /></label>
+        <div className="form-row"><label>Latitude<input name="latitude" type="number" step="any" min="-90" max="90" required defaultValue="5.348" /></label><label>Longitude<input name="longitude" type="number" step="any" min="-180" max="180" required defaultValue="-4.006" /></label></div>
+        <div className="form-row"><label>Prénom du déclarant (facultatif)<input name="reporterFirstName" maxLength={100} autoComplete="given-name" /></label><label>Nom du déclarant (facultatif)<input name="reporterLastName" maxLength={100} autoComplete="family-name" /></label></div>
+        <label>Téléphone du déclarant (facultatif)<input name="reporterPhone" type="tel" inputMode="tel" maxLength={30} autoComplete="tel" placeholder="Ex. +225 07 00 00 00 00" /></label>
+        <label>Observations<textarea name="observations" maxLength={2000} placeholder="Décrivez le problème et les risques…" /></label>
+        <label className="citizen-evidence-picker"><Camera /><span><strong>Ajouter des photos ou vidéos justificatives</strong><small>3 fichiers maximum · 40 Mo par fichier</small></span><input type="file" accept={EVIDENCE_MIME_TYPES.join(",")} multiple onChange={selectEvidence} disabled={submitting || evidenceFiles.length >= MAX_EVIDENCE_FILES} /></label>
+        {evidenceFiles.length ? <div className="citizen-evidence-grid">{evidenceFiles.map((item, index) => <article key={`${item.file.name}-${item.file.lastModified}-${index}`}><div className="citizen-evidence-preview">{evidenceMediaType(item.mimeType) === "video" ? <video src={item.previewUrl} muted preload="metadata" /> : ["image/heic", "image/heif"].includes(item.mimeType) ? <ImageIcon /> : <img src={item.previewUrl} alt={`Aperçu de ${item.file.name}`} />}</div><div><strong>{item.file.name}</strong><small>{evidenceMediaType(item.mimeType) === "video" ? <Video /> : <ImageIcon />}{formatEvidenceSize(item.file.size)}</small></div><button type="button" aria-label={`Retirer ${item.file.name}`} onClick={() => removeEvidence(index)} disabled={submitting}><Trash2 /></button></article>)}</div> : <div className="citizen-evidence-empty"><ImageIcon /><span>Ajoutez une photo ou une vidéo pour faciliter l’évaluation du signalement.</span></div>}
+        {uploadMessage ? <div className="citizen-upload-message" role="status"><Camera /><span>{uploadMessage}</span></div> : null}
+        <div className="modal-actions"><button type="button" className="secondary" onClick={() => setModal(false)} disabled={submitting}>Annuler</button><button className="primary" disabled={submitting}>{submitting ? "Enregistrement…" : "Enregistrer"}</button></div>
+      </form>
+    </div>}
     {accountOpen && <AccountModal user={initialData.user} onClose={() => setAccountOpen(false)} />}
   </main>;
 }
