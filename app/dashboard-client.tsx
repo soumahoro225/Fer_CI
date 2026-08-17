@@ -4,7 +4,7 @@
 import dynamic from "next/dynamic";
 import {
   AlertTriangle, BarChart3, Bell, Camera, CheckCircle2, ChevronDown, ClipboardList, Clock3, Construction, Crosshair, ExternalLink,
-  FileImage, Filter, Image as ImageIcon, Landmark, Layers3, LocateFixed, LogOut, Map, MapPin, Menu, Phone, Plus,
+  FileImage, Filter, Image as ImageIcon, Layers3, LocateFixed, LogOut, Map as MapIcon, MapPin, Menu, Phone, Plus,
   Search, Settings, ShipWheel, Signpost, Trash2, UserCheck, UserRound, Video, WalletCards, Wrench, X,
 } from "lucide-react";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
@@ -16,7 +16,7 @@ import {
 import { createClient } from "../lib/supabase/client";
 import { logout } from "./login/actions";
 import BrandLogo from "./brand-logo";
-import { CategoryIcon, CategoryPicker } from "./category-icon";
+import { CategoryIcon, CategoryPicker, incidentCategories } from "./category-icon";
 import type { MapItem } from "./map-view";
 
 const MapView = dynamic(() => import("./map-view"), {
@@ -42,7 +42,7 @@ type StaffLocationSource = "gps" | "manual_map";
 type StaffLocationState = "idle" | "locating" | "ready" | "error";
 
 const nav = [
-  ["Vue d’ensemble", BarChart3], ["Carte & réseau", Map], ["Signalements", AlertTriangle],
+  ["Vue d’ensemble", BarChart3], ["Carte & réseau", MapIcon], ["Signalements", AlertTriangle],
   ["Interventions", ClipboardList], ["Financement", WalletCards], ["Patrimoine", Signpost],
   ["Ouvrages & bacs", ShipWheel],
 ] as const;
@@ -141,11 +141,16 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
     : [];
   const totalBudget = initialData.interventions.reduce((sum, row) => sum + Number(row.budget_fcfa), 0);
   const totalCommitted = initialData.interventions.reduce((sum, row) => sum + Number(row.committed_fcfa), 0);
-  const totalResources = initialData.resources.reduce((sum, row) => sum + Number(row.collected_fcfa), 0);
   const unpaid = initialData.payments.filter((row) => !row.paid_at && row.status !== "Payé");
   const unpaidAmount = unpaid.reduce((sum, row) => sum + Number(row.amount_fcfa), 0);
-  const openIncidents = items.filter((row) => !["Résolu", "Rejeté"].includes(row.status)).length;
-  const runningInterventions = initialData.interventions.filter((row) => row.status === "En cours").length;
+  const categoryKpis = useMemo(() => {
+    const counts = new Map<string, number>();
+    items.forEach((item) => counts.set(item.category, (counts.get(item.category) ?? 0) + 1));
+    return incidentCategories.map((category) => ({
+      ...category,
+      count: counts.get(category.value) ?? 0,
+    }));
+  }, [items]);
   const engagementRate = totalBudget > 0 ? Math.round((totalCommitted / totalBudget) * 1000) / 10 : 0;
   const generatedAt = new Date(initialData.generatedAt).getTime();
   const paymentAlerts = unpaid.filter((row) => (generatedAt - new Date(row.received_at).getTime()) / 86_400_000 >= 50).length;
@@ -391,7 +396,10 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
         {active === "Signalements" ? <SignalementsModule items={items} evidence={evidence} staff={initialData.staff} selected={selected} onSelect={setSelected} query={query} onQueryChange={setQuery} onUpdate={updateIncidentWorkflow} onDelete={deleteIncident} canDelete={initialData.user.role === "direction"} /> : <>
         {active !== "Vue d’ensemble" && <section className="module-banner"><strong>{active}</strong><span>Ce module est en cours d’enrichissement. Les données réelles disponibles restent visibles ci-dessous.</span></section>}
         <section className="objectives"><span>OBJECTIFS FER</span><div><p><i className={engagementRate <= 100 ? "ok" : "warn"} />Engagements / budget <b>{engagementRate}%</b></p><p><i className={paymentAlerts ? "warn" : "ok"} />Décomptes proches de 60 jours <b>{paymentAlerts}</b></p><p><i className="ok" />Patrimoine inventorié <b>{initialData.assets.length}</b></p><p><i className="ok" />Ressources enregistrées <b>{initialData.resources.length}</b></p></div></section>
-        <section className="kpis"><article><span className="kicon red"><AlertTriangle /></span><div><small>Signalements ouverts</small><strong>{openIncidents}</strong><p>{items.length} signalement(s) au total</p></div></article><article><span className="kicon amber"><Construction /></span><div><small>Interventions en cours</small><strong>{runningInterventions}</strong><p>{initialData.interventions.length} intervention(s) enregistrée(s)</p></div></article><article><span className="kicon green"><Landmark /></span><div><small>Ressources mobilisées</small><strong>{formatFcfa(totalResources)}</strong><p>Données déclarées dans GEOSIGNALE-CI</p></div></article><article><span className="kicon blue"><WalletCards /></span><div><small>Décomptes à régler</small><strong>{formatFcfa(unpaidAmount)}</strong><p>{unpaid.length} décompte(s) ouvert(s)</p></div></article></section>
+        <section className="kpis" aria-label="Nombre de signalements par catégorie">
+          <article><span className="kicon green"><BarChart3 /></span><div><small>Total des signalements</small><strong>{items.length}</strong></div></article>
+          {categoryKpis.map((category) => <article key={category.value}><span className="kicon category-kicon"><CategoryIcon category={category.value} /></span><div><small>{category.label}</small><strong>{category.count}</strong></div></article>)}
+        </section>
         <section className="main-grid"><article className="card map-card"><div className="card-head"><div><h3>Carte opérationnelle</h3><p>Signalements géolocalisés enregistrés</p></div><div className="map-actions"><button onClick={() => setLayers(!layers)}><Layers3 size={16} />Couches<ChevronDown size={14} /></button><button disabled title="Bientôt disponible"><Filter size={16} />Filtres</button>{layers && <div className="layer-menu"><label><input type="checkbox" defaultChecked />Signalements</label><label><input type="checkbox" disabled />Interventions — bientôt</label><label><input type="checkbox" disabled />Patrimoine — bientôt</label></div>}</div></div><div className="map-wrap"><MapView items={filtered} selected={selected} onSelect={(item) => setSelected(item as Incident)} />{!items.length && <div className="map-empty"><MapPin /><strong>Aucun signalement cartographié</strong><span>Ajoutez le premier signalement pour faire apparaître un point sur la carte.</span></div>}<div className="legend"><span><i className="crit" />Critique</span><span><i className="work" />Élevée</span><span><i className="asset" />Modérée</span></div></div></article>
           <article className="card alerts"><div className="card-head"><div><h3>Alertes prioritaires</h3><p>Signalements nécessitant une action</p></div><span className="record-count">{filtered.length}</span></div><div className="alert-list">{filtered.slice(0, 8).map((item) => <button key={item.id} className={selected?.id === item.id ? "selected" : ""} onClick={() => setSelected(item)}><CategoryIcon category={item.category} /><span className="alert-copy"><strong>{item.title}</strong><small>{item.location}</small>{reporterContact(item) && <em>Contact : {reporterContact(item)}</em>}<em>{item.id} · {item.status}</em></span><b className={`severity s-${item.severity[0]}`}>{item.severity}</b></button>)}{!filtered.length && <div className="empty-state"><AlertTriangle /><strong>{query ? "Aucun résultat" : "Aucun signalement"}</strong><span>{query ? "Modifiez votre recherche." : "La base GEOSIGNALE-CI ne contient pas encore de signalement."}</span></div>}</div></article></section>
         {selected ? <section className="card incident-detail"><div className="card-head"><div><h3>Détail du signalement</h3><p>{selected.id} · {selected.category}</p></div><b className={`severity s-${selected.severity[0]}`}>{selected.severity}</b></div><div className="incident-detail-body"><div className="incident-summary"><div><strong>{selected.title}</strong><span><MapPin />{selected.location}</span>{reporterContact(selected) ? <span><Phone />{reporterContact(selected)}</span> : <span>Déclarant non renseigné</span>}</div><p>{selected.observations || "Aucune information complémentaire."}</p></div><div className="incident-evidence"><div><strong>Photos et vidéos</strong><span>{selectedEvidence.length} preuve(s)</span></div>{selectedEvidence.length ? <div className="incident-evidence-grid">{selectedEvidence.map((evidence) => <article key={evidence.id}>{evidence.signed_url ? evidence.media_type === "video" ? <video controls preload="metadata" src={evidence.signed_url} /> : <img src={evidence.signed_url} alt={`Preuve : ${evidence.original_name}`} /> : <div className="incident-evidence-unavailable"><FileImage />Indisponible</div>}<div><span>{evidence.media_type === "video" ? <Video /> : <FileImage />}{evidence.original_name}</span><small>{formatEvidenceSize(evidence.size_bytes)}</small>{evidence.signed_url ? <a href={evidence.signed_url} target="_blank" rel="noreferrer">Ouvrir <ExternalLink /></a> : null}</div></article>)}</div> : <div className="incident-evidence-empty"><FileImage /><span>Aucune photo ou vidéo jointe à ce signalement.</span></div>}</div></div></section> : null}
