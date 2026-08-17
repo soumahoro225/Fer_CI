@@ -21,6 +21,7 @@ export type CitizenIncident = {
 
 export type CitizenPortalData = {
   user: {
+    id: string;
     email: string;
     fullName: string;
     phone: string | null;
@@ -50,6 +51,7 @@ export async function getCitizenPortalData(): Promise<CitizenPortalData | null> 
 
   return {
     user: {
+      id: auth.user.id,
       email: auth.user.email ?? "",
       fullName: profileResult.data.full_name,
       phone: profileResult.data.phone,

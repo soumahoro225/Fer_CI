@@ -62,6 +62,18 @@ export type ResourceRecord = {
   collected_fcfa: number;
 };
 
+export type EvidenceRecord = {
+  id: string;
+  incident_id: string;
+  media_type: "image" | "video";
+  mime_type: string;
+  size_bytes: number;
+  original_name: string;
+  storage_path: string;
+  created_at: string;
+  signed_url: string | null;
+};
+
 export type DashboardData = {
   generatedAt: string;
   user: { email: string; fullName: string; role: FerRole };
@@ -70,6 +82,7 @@ export type DashboardData = {
   assets: AssetRecord[];
   payments: PaymentRecord[];
   resources: ResourceRecord[];
+  evidence: EvidenceRecord[];
 };
 
 export async function getDashboardData(): Promise<DashboardData | null> {
@@ -78,7 +91,7 @@ export async function getDashboardData(): Promise<DashboardData | null> {
 
   if (authError || !auth.user) return null;
 
-  const [profileResult, incidentsResult, interventionsResult, assetsResult, paymentsResult, resourcesResult] =
+  const [profileResult, incidentsResult, interventionsResult, assetsResult, paymentsResult, resourcesResult, evidenceResult] =
     await Promise.all([
       supabase.from("profiles").select("full_name,role").eq("id", auth.user.id).single(),
       supabase
@@ -106,14 +119,28 @@ export async function getDashboardData(): Promise<DashboardData | null> {
         .select("id,source,year,target_fcfa,collected_fcfa")
         .order("year", { ascending: false })
         .limit(100),
+      supabase
+        .from("incident_evidence")
+        .select("id,incident_id,media_type,mime_type,size_bytes,original_name,storage_path,created_at")
+        .order("created_at", { ascending: true })
+        .limit(600),
     ]);
 
-  const failure = [profileResult, incidentsResult, interventionsResult, assetsResult, paymentsResult, resourcesResult].find(
+  const failure = [profileResult, incidentsResult, interventionsResult, assetsResult, paymentsResult, resourcesResult, evidenceResult].find(
     (result) => result.error,
   );
   if (failure?.error) throw new Error(`Chargement FER impossible: ${failure.error.message}`);
 
   const profile = profileResult.data as { full_name: string; role: FerRole };
+  const evidenceRows = (evidenceResult.data ?? []) as Omit<EvidenceRecord, "signed_url">[];
+  let evidence: EvidenceRecord[] = evidenceRows.map((row) => ({ ...row, signed_url: null }));
+  if (evidenceRows.length) {
+    const { data: signedUrls, error: signedUrlError } = await supabase.storage
+      .from("incident-evidence")
+      .createSignedUrls(evidenceRows.map((row) => row.storage_path), 3600);
+    if (signedUrlError) throw new Error("Chargement des preuves impossible");
+    evidence = evidenceRows.map((row, index) => ({ ...row, signed_url: signedUrls[index]?.signedUrl ?? null }));
+  }
 
   return {
     generatedAt: new Date().toISOString(),
@@ -127,5 +154,6 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     assets: (assetsResult.data ?? []) as AssetRecord[],
     payments: (paymentsResult.data ?? []) as PaymentRecord[],
     resources: (resourcesResult.data ?? []) as ResourceRecord[],
+    evidence,
   };
 }

@@ -1,12 +1,19 @@
+/* eslint-disable @next/next/no-img-element -- local object URLs are not compatible with the Next.js image optimizer */
 "use client";
 
 import dynamic from "next/dynamic";
 import {
-  AlertTriangle, Check, ChevronRight, CircleUserRound, Crosshair, FileClock,
-  LocateFixed, LogOut, MapPin, Navigation, Plus, RotateCcw, Send, ShieldCheck, X,
+  AlertTriangle, Camera, Check, ChevronRight, CircleUserRound, Crosshair, FileClock,
+  Image as ImageIcon, LocateFixed, LogOut, MapPin, Navigation, Plus, RotateCcw,
+  Send, ShieldCheck, Trash2, Video, X,
 } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import type { CitizenIncident, CitizenPortalData } from "../../lib/citizen";
+import {
+  EVIDENCE_BUCKET, EVIDENCE_MIME_TYPES, MAX_EVIDENCE_FILES, MAX_EVIDENCE_FILE_SIZE,
+  evidenceExtension, evidenceMediaType, evidenceMimeType, formatEvidenceSize,
+} from "../../lib/evidence";
+import { createClient } from "../../lib/supabase/client";
 import { logout } from "../login/actions";
 import type { CitizenPosition } from "./location-map";
 
@@ -17,6 +24,7 @@ const LocationMap = dynamic(() => import("./location-map"), {
 
 type GpsState = "idle" | "locating" | "ready" | "error";
 type LocationSource = "gps" | "manual_map";
+type EvidenceSelection = { file: File; mimeType: string; previewUrl: string };
 
 const statusLabels: Record<string, string> = {
   "À qualifier": "Reçu par le FER",
@@ -33,6 +41,9 @@ const reportDate = new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium" });
 const isInIvoryCoast = (position: CitizenPosition) => position.lat >= 3.5 && position.lat <= 11 && position.lng >= -9 && position.lng <= -2;
 
 export default function CitizenClient({ initialData }: { initialData: CitizenPortalData }) {
+  const profileNameParts = initialData.user.fullName.trim().split(/\s+/).filter(Boolean);
+  const defaultReporterLastName = profileNameParts[0] ?? "";
+  const defaultReporterFirstName = profileNameParts.slice(1).join(" ");
   const [incidents, setIncidents] = useState(initialData.incidents);
   const [reportOpen, setReportOpen] = useState(false);
   const [position, setPosition] = useState<CitizenPosition | null>(null);
@@ -47,7 +58,19 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [successReference, setSuccessReference] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   const [clientRequestId, setClientRequestId] = useState("");
+  const [evidenceFiles, setEvidenceFiles] = useState<EvidenceSelection[]>([]);
+  const [uploadMessage, setUploadMessage] = useState("");
+  const evidenceFilesRef = useRef<EvidenceSelection[]>([]);
+
+  useEffect(() => {
+    evidenceFilesRef.current = evidenceFiles;
+  }, [evidenceFiles]);
+
+  useEffect(() => () => {
+    evidenceFilesRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+  }, []);
 
   useEffect(() => {
     if (!reportOpen || submitting) return;
@@ -77,10 +100,79 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
 
   function openReport() {
     setSuccessReference("");
+    setSuccessMessage("");
     setFormError("");
+    setUploadMessage("");
+    evidenceFilesRef.current.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+    setEvidenceFiles([]);
     resetLocation();
     setClientRequestId(crypto.randomUUID());
     setReportOpen(true);
+  }
+
+  function selectEvidence(event: ChangeEvent<HTMLInputElement>) {
+    const incoming = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    setFormError("");
+    if (!incoming.length) return;
+    if (evidenceFiles.length + incoming.length > MAX_EVIDENCE_FILES) {
+      setFormError(`Vous pouvez joindre au maximum ${MAX_EVIDENCE_FILES} photos ou vidéos.`);
+      return;
+    }
+    const next: EvidenceSelection[] = [];
+    for (const file of incoming) {
+      const mimeType = evidenceMimeType(file);
+      if (!mimeType || !evidenceMediaType(mimeType)) {
+        next.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+        setFormError(`Le fichier « ${file.name} » n’est pas une photo ou une vidéo acceptée.`);
+        return;
+      }
+      if (!file.size || file.size > MAX_EVIDENCE_FILE_SIZE) {
+        next.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+        setFormError(`Le fichier « ${file.name} » dépasse la limite de 40 Mo.`);
+        return;
+      }
+      next.push({ file, mimeType, previewUrl: URL.createObjectURL(file) });
+    }
+    setEvidenceFiles((current) => [...current, ...next]);
+  }
+
+  function removeEvidence(index: number) {
+    setEvidenceFiles((current) => {
+      URL.revokeObjectURL(current[index].previewUrl);
+      return current.filter((_, itemIndex) => itemIndex !== index);
+    });
+  }
+
+  async function uploadEvidence(incident: CitizenIncident) {
+    if (!evidenceFiles.length) return;
+    const supabase = createClient();
+    for (let index = 0; index < evidenceFiles.length; index += 1) {
+      const selection = evidenceFiles[index];
+      const mediaType = evidenceMediaType(selection.mimeType);
+      if (!mediaType) throw new Error("Type de preuve invalide");
+      setUploadMessage(`Envoi de la preuve ${index + 1} sur ${evidenceFiles.length}…`);
+      const storagePath = `${initialData.user.id}/${incident.id}/${clientRequestId}-${index}.${evidenceExtension(selection.file)}`;
+      const { error: uploadError } = await supabase.storage.from(EVIDENCE_BUCKET).upload(storagePath, selection.file, {
+        cacheControl: "3600",
+        contentType: selection.mimeType,
+        upsert: false,
+      });
+      const uploadStatus = Number((uploadError as { statusCode?: string | number } | null)?.statusCode);
+      const alreadyUploaded = uploadStatus === 409 || /already exists|duplicate/i.test(uploadError?.message ?? "");
+      if (uploadError && !alreadyUploaded) throw uploadError;
+
+      const { error: metadataError } = await supabase.from("incident_evidence").insert({
+        incident_id: incident.id,
+        storage_path: storagePath,
+        media_type: mediaType,
+        mime_type: selection.mimeType,
+        size_bytes: selection.file.size,
+        original_name: (selection.file.name.trim() || `preuve-${index + 1}`).slice(0, 200),
+        uploaded_by: initialData.user.id,
+      });
+      if (metadataError && metadataError.code !== "23505") throw metadataError;
+    }
   }
 
   function selectPosition(next: CitizenPosition, source: LocationSource = "manual_map", nextAccuracy: number | null = null) {
@@ -184,9 +276,22 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
       }
       const incident = payload.incident as CitizenIncident;
       setIncidents((current) => current.some((item) => item.id === incident.id) ? current : [incident, ...current]);
+      try {
+        await uploadEvidence(incident);
+      } catch (error) {
+        console.error("citizen.evidence.upload", error);
+        setFormError(`Le signalement ${incident.reference} est enregistré, mais toutes les preuves n’ont pas pu être envoyées. Vérifiez votre réseau puis appuyez de nouveau sur « Envoyer le signalement ».`);
+        return;
+      }
       setSuccessReference(incident.reference);
+      setSuccessMessage(evidenceFiles.length
+        ? `${evidenceFiles.length} preuve(s) jointe(s) au signalement.`
+        : "Aucune photo ou vidéo jointe.");
       setReportOpen(false);
       form.reset();
+      evidenceFiles.forEach((item) => URL.revokeObjectURL(item.previewUrl));
+      setEvidenceFiles([]);
+      setUploadMessage("");
     } catch {
       setFormError("Connexion au serveur impossible. Vérifiez votre réseau puis réessayez.");
     } finally {
@@ -205,7 +310,7 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
       <div className="citizen-hero-visual"><Navigation /><span>Votre signalement aide les équipes à intervenir au bon endroit.</span></div>
     </section>
 
-    {successReference ? <section className="citizen-success" role="status"><span><Check /></span><div><strong>Signalement envoyé avec succès</strong><p>Conservez votre référence <b>{successReference}</b>. Son avancement apparaît ci-dessous.</p></div><button onClick={() => setSuccessReference("")} aria-label="Fermer"><X /></button></section> : null}
+    {successReference ? <section className="citizen-success" role="status"><span><Check /></span><div><strong>Signalement envoyé avec succès</strong><p>Conservez votre référence <b>{successReference}</b>. {successMessage}</p></div><button onClick={() => setSuccessReference("")} aria-label="Fermer"><X /></button></section> : null}
 
     <section className="citizen-content">
       <div className="citizen-section-head"><div><small>MES SIGNALEMENTS</small><h2>Suivre mes demandes</h2><p>Vous ne voyez ici que les signalements créés avec votre compte.</p></div><span>{incidents.length}</span></div>
@@ -225,12 +330,21 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
           <label>Intitulé<input name="title" required minLength={3} maxLength={160} autoFocus placeholder="Ex. Gros nid-de-poule sur la chaussée" /></label>
           <label>Commune ou point de repère<input name="location" required minLength={2} maxLength={240} placeholder="Ex. Cocody, près du carrefour…" /></label>
           <label>Informations complémentaires<textarea name="observations" maxLength={2000} placeholder="Précisez la taille, le danger ou tout repère utile…" /></label>
-          <label>Prénom de la personne qui signale (facultatif)<input name="reporterFirstName" maxLength={100} autoComplete="given-name" placeholder="Ex. Ibrahim" /></label>
-          <label>Nom de la personne qui signale (facultatif)<input name="reporterLastName" maxLength={100} autoComplete="family-name" placeholder="Ex. Soumahoro" /></label>
-          <label>Numéro de téléphone (facultatif)<input name="reporterPhone" type="tel" inputMode="tel" maxLength={30} autoComplete="tel" placeholder="Ex. +225 07 00 00 00 00" /></label>
+          <div className="citizen-contact-note">Ces renseignements sont facultatifs et préremplis depuis votre compte. Vous pouvez les modifier ou les effacer.</div>
+          <div className="citizen-contact-grid"><label>Nom de la personne qui signale (facultatif)<input name="reporterLastName" maxLength={100} autoComplete="family-name" defaultValue={defaultReporterLastName} placeholder="Ex. Soumahoro" /></label><label>Prénom(s) (facultatif)<input name="reporterFirstName" maxLength={100} autoComplete="given-name" defaultValue={defaultReporterFirstName} placeholder="Ex. Ibrahim" /></label></div>
+          <label>Numéro de téléphone (facultatif)<input name="reporterPhone" type="tel" inputMode="tel" maxLength={30} autoComplete="tel" defaultValue={initialData.user.phone ?? ""} placeholder="Ex. +225 07 00 00 00 00" /></label>
         </section>
 
-        <section className="citizen-form-section"><div className="citizen-step"><span>2</span><div><strong>Localiser le problème</strong><small>Votre position n’est jamais suivie en continu</small></div></div>
+        <section className="citizen-form-section"><div className="citizen-step"><span>2</span><div><strong>Ajouter des preuves</strong><small>Photos ou vidéos prises sur place — facultatif</small></div></div>
+          <label className="citizen-evidence-picker"><Camera /><span><strong>Ajouter des photos ou vidéos</strong><small>3 fichiers maximum · 40 Mo par fichier</small></span><input type="file" accept={EVIDENCE_MIME_TYPES.join(",")} multiple onChange={selectEvidence} disabled={submitting || evidenceFiles.length >= MAX_EVIDENCE_FILES} /></label>
+          {evidenceFiles.length ? <div className="citizen-evidence-grid">{evidenceFiles.map((item, index) => <article key={`${item.file.name}-${item.file.lastModified}-${index}`}>
+            <div className="citizen-evidence-preview">{evidenceMediaType(item.mimeType) === "video" ? <video src={item.previewUrl} muted preload="metadata" /> : ["image/heic", "image/heif"].includes(item.mimeType) ? <ImageIcon /> : <img src={item.previewUrl} alt={`Aperçu de ${item.file.name}`} />}</div>
+            <div><strong>{item.file.name}</strong><small>{evidenceMediaType(item.mimeType) === "video" ? <Video /> : <ImageIcon />}{formatEvidenceSize(item.file.size)}</small></div>
+            <button type="button" aria-label={`Retirer ${item.file.name}`} onClick={() => removeEvidence(index)} disabled={submitting}><Trash2 /></button>
+          </article>)}</div> : <div className="citizen-evidence-empty"><ImageIcon /><span>Les preuves permettent aux équipes de mieux évaluer le signalement.</span></div>}
+        </section>
+
+        <section className="citizen-form-section"><div className="citizen-step"><span>3</span><div><strong>Localiser le problème</strong><small>Votre position n’est jamais suivie en continu</small></div></div>
           <button type="button" className="citizen-locate" onClick={locateMe} disabled={gpsState === "locating"}><LocateFixed />{gpsState === "locating" ? "Recherche en cours…" : "Utiliser ma position actuelle"}</button>
           <div className={`citizen-gps-message ${gpsState}`} aria-live="polite"><Crosshair /><span>{gpsMessage}</span></div>
           <div className="citizen-map-box"><LocationMap position={position} onChange={(point) => selectPosition(point)} /><p><MapPin />Touchez la carte ou déplacez le repère pour corriger la position.</p></div>
@@ -239,6 +353,7 @@ export default function CitizenClient({ initialData }: { initialData: CitizenPor
           {position ? <div className={`citizen-position-confirm ${confirmed ? "confirmed" : ""}`}><div><strong>{confirmed ? "Position confirmée" : "Cette position est-elle correcte ?"}</strong><small>{position.lat.toFixed(6)}, {position.lng.toFixed(6)}{accuracy !== null ? ` · précision ${Math.round(accuracy)} m` : " · position manuelle"}</small></div><button type="button" onClick={() => setConfirmed(true)} disabled={confirmed}>{confirmed ? <Check /> : <MapPin />}{confirmed ? "Confirmée" : "Confirmer"}</button></div> : null}
         </section>
 
+        {uploadMessage ? <div className="citizen-upload-message" role="status"><Camera /><span>{uploadMessage}</span></div> : null}
         <div className="citizen-form-note"><AlertTriangle /><span>La priorité et la planification seront déterminées par les équipes techniques compétentes.</span></div>
         <div className="citizen-form-actions"><button type="button" onClick={() => { resetLocation(); setFormError(""); }} disabled={submitting}><RotateCcw />Réinitialiser la position</button><button className="citizen-primary" disabled={submitting || !confirmed}><Send />{submitting ? "Envoi en cours…" : "Envoyer le signalement"}</button></div>
       </form>
