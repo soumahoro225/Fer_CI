@@ -3,6 +3,9 @@ import { parseReporterContact } from "../../../lib/reporter-contact";
 import { createClient } from "../../../lib/supabase/server";
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const incidentStatuses = ["À qualifier", "Validé", "Planifié", "En traitement", "Résolu", "Rejeté"] as const;
+const incidentSeverities = ["Critique", "Élevée", "Modérée"] as const;
+const incidentFields = "id,reference,title,category,location,severity,status,observations,reporter_first_name,reporter_last_name,reporter_phone,source,assigned_to,latitude,longitude,created_at,updated_at";
 
 async function authorizedClient() {
   const supabase = await createClient();
@@ -18,7 +21,7 @@ async function authorizedClient() {
 export async function GET() {
   const { supabase, user, status } = await authorizedClient();
   if (!user) return NextResponse.json({ error: status === 401 ? "Authentification requise" : "Accès FER refusé" }, { status });
-  const { data, error } = await supabase.from("incidents").select("id,reference,title,category,location,severity,status,latitude,longitude,reporter_first_name,reporter_last_name,reporter_phone,created_at").order("created_at", { ascending: false }).limit(100);
+  const { data, error } = await supabase.from("incidents").select(incidentFields).order("created_at", { ascending: false }).limit(100);
   if (error) {
     console.error("incidents.select", error);
     return NextResponse.json({ error: "Lecture impossible" }, { status: 500 });
@@ -63,4 +66,47 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Enregistrement impossible" }, { status: 500 });
   }
   return NextResponse.json({ incident: data }, { status: 201 });
+}
+
+export async function PATCH(request: Request) {
+  const { supabase, user, status: authStatus } = await authorizedClient();
+  if (!user) return NextResponse.json({ error: authStatus === 401 ? "Authentification requise" : "Accès FER refusé" }, { status: authStatus });
+
+  let body: Record<string, unknown>;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: "Corps JSON invalide" }, { status: 400 }); }
+
+  const id = typeof body.id === "string" ? body.id : "";
+  const incidentStatus = typeof body.status === "string" ? body.status : "";
+  const severity = typeof body.severity === "string" ? body.severity : "";
+  const assignedTo = body.assignedTo === null ? null : typeof body.assignedTo === "string" ? body.assignedTo : undefined;
+  if (!uuidPattern.test(id) || !incidentStatuses.includes(incidentStatus as typeof incidentStatuses[number]) || !incidentSeverities.includes(severity as typeof incidentSeverities[number]) || assignedTo === undefined || (assignedTo !== null && !uuidPattern.test(assignedTo))) {
+    return NextResponse.json({ error: "Données de qualification invalides" }, { status: 400 });
+  }
+
+  if (assignedTo) {
+    const { data: assignee, error: assigneeError } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("id", assignedTo)
+      .in("role", ["direction", "agent"])
+      .maybeSingle();
+    if (assigneeError) {
+      console.error("incidents.assignee", assigneeError);
+      return NextResponse.json({ error: "Vérification de l’agent impossible" }, { status: 500 });
+    }
+    if (!assignee) return NextResponse.json({ error: "Agent d’affectation invalide" }, { status: 400 });
+  }
+
+  const { data, error } = await supabase
+    .from("incidents")
+    .update({ status: incidentStatus, severity, assigned_to: assignedTo })
+    .eq("id", id)
+    .select(incidentFields)
+    .maybeSingle();
+  if (error) {
+    console.error("incidents.update", error);
+    return NextResponse.json({ error: "Mise à jour impossible" }, { status: 500 });
+  }
+  if (!data) return NextResponse.json({ error: "Signalement introuvable" }, { status: 404 });
+  return NextResponse.json({ incident: data });
 }

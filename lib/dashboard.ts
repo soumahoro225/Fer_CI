@@ -16,9 +16,18 @@ export type IncidentRecord = {
   reporter_first_name: string | null;
   reporter_last_name: string | null;
   reporter_phone: string | null;
+  source: "FER" | "Citoyen";
+  assigned_to: string | null;
   latitude: number;
   longitude: number;
   created_at: string;
+  updated_at: string;
+};
+
+export type StaffProfile = {
+  id: string;
+  full_name: string;
+  role: "direction" | "agent";
 };
 
 export type InterventionRecord = {
@@ -83,6 +92,7 @@ export type DashboardData = {
   payments: PaymentRecord[];
   resources: ResourceRecord[];
   evidence: EvidenceRecord[];
+  staff: StaffProfile[];
 };
 
 export async function getDashboardData(): Promise<DashboardData | null> {
@@ -91,12 +101,12 @@ export async function getDashboardData(): Promise<DashboardData | null> {
 
   if (authError || !auth.user) return null;
 
-  const [profileResult, incidentsResult, interventionsResult, assetsResult, paymentsResult, resourcesResult, evidenceResult] =
+  const [profileResult, incidentsResult, interventionsResult, assetsResult, paymentsResult, resourcesResult, evidenceResult, staffResult] =
     await Promise.all([
       supabase.from("profiles").select("full_name,role").eq("id", auth.user.id).single(),
       supabase
         .from("incidents")
-        .select("id,reference,title,category,location,severity,status,observations,reporter_first_name,reporter_last_name,reporter_phone,latitude,longitude,created_at")
+        .select("id,reference,title,category,location,severity,status,observations,reporter_first_name,reporter_last_name,reporter_phone,source,assigned_to,latitude,longitude,created_at,updated_at")
         .order("created_at", { ascending: false })
         .limit(200),
       supabase
@@ -124,9 +134,14 @@ export async function getDashboardData(): Promise<DashboardData | null> {
         .select("id,incident_id,media_type,mime_type,size_bytes,original_name,storage_path,created_at")
         .order("created_at", { ascending: true })
         .limit(600),
+      supabase
+        .from("profiles")
+        .select("id,full_name,role")
+        .in("role", ["direction", "agent"])
+        .order("full_name", { ascending: true }),
     ]);
 
-  const failure = [profileResult, incidentsResult, interventionsResult, assetsResult, paymentsResult, resourcesResult, evidenceResult].find(
+  const failure = [profileResult, incidentsResult, interventionsResult, assetsResult, paymentsResult, resourcesResult, evidenceResult, staffResult].find(
     (result) => result.error,
   );
   if (failure?.error) throw new Error(`Chargement FER impossible: ${failure.error.message}`);
@@ -156,5 +171,6 @@ export async function getDashboardData(): Promise<DashboardData | null> {
     payments: (paymentsResult.data ?? []) as PaymentRecord[],
     resources: (resourcesResult.data ?? []) as ResourceRecord[],
     evidence,
+    staff: (staffResult.data ?? []) as StaffProfile[],
   };
 }

@@ -3,12 +3,12 @@
 
 import dynamic from "next/dynamic";
 import {
-  AlertTriangle, BarChart3, Bell, Camera, ChevronDown, ClipboardList, Construction, Crosshair, ExternalLink,
+  AlertTriangle, BarChart3, Bell, Camera, CheckCircle2, ChevronDown, ClipboardList, Clock3, Construction, Crosshair, ExternalLink,
   FileImage, Filter, Image as ImageIcon, Landmark, Layers3, LocateFixed, LogOut, Map, MapPin, Menu, Phone, Plus,
-  Search, Settings, ShipWheel, Signpost, Trash2, UserRound, Video, WalletCards, Wrench, X,
+  Search, Settings, ShipWheel, Signpost, Trash2, UserCheck, UserRound, Video, WalletCards, Wrench, X,
 } from "lucide-react";
 import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
-import type { DashboardData, EvidenceRecord } from "../lib/dashboard";
+import type { DashboardData, EvidenceRecord, IncidentRecord, StaffProfile } from "../lib/dashboard";
 import {
   EVIDENCE_BUCKET, EVIDENCE_MIME_TYPES, MAX_EVIDENCE_FILES, MAX_EVIDENCE_FILE_SIZE,
   evidenceExtension, evidenceMediaType, evidenceMimeType, formatEvidenceSize,
@@ -30,6 +30,10 @@ type Incident = MapItem & {
   reporterFirstName: string | null;
   reporterLastName: string | null;
   reporterPhone: string | null;
+  source: "FER" | "Citoyen";
+  assignedTo: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 type EvidenceSelection = { file: File; mimeType: string; previewUrl: string };
 type StaffLocationSource = "gps" | "manual_map";
@@ -57,23 +61,29 @@ const reporterContact = (incident: Incident) => {
   return [name, incident.reporterPhone].filter(Boolean).join(" · ");
 };
 
+const incidentFromRecord = (item: IncidentRecord): Incident => ({
+  id: item.reference,
+  databaseId: item.id,
+  category: item.category,
+  title: item.title,
+  location: item.location,
+  severity: item.severity,
+  status: item.status,
+  observations: item.observations,
+  reporterFirstName: item.reporter_first_name,
+  reporterLastName: item.reporter_last_name,
+  reporterPhone: item.reporter_phone,
+  source: item.source,
+  assignedTo: item.assigned_to,
+  createdAt: item.created_at,
+  updatedAt: item.updated_at,
+  lat: item.latitude,
+  lng: item.longitude,
+  color: colorForSeverity(item.severity),
+});
+
 export default function DashboardClient({ initialData }: { initialData: DashboardData }) {
-  const initialIncidents: Incident[] = initialData.incidents.map((item) => ({
-    id: item.reference,
-    databaseId: item.id,
-    category: item.category,
-    title: item.title,
-    location: item.location,
-    severity: item.severity,
-    status: item.status,
-    observations: item.observations,
-    reporterFirstName: item.reporter_first_name,
-    reporterLastName: item.reporter_last_name,
-    reporterPhone: item.reporter_phone,
-    lat: item.latitude,
-    lng: item.longitude,
-    color: colorForSeverity(item.severity),
-  }));
+  const initialIncidents: Incident[] = initialData.incidents.map(incidentFromRecord);
   const [active, setActive] = useState("Vue d’ensemble");
   const [items, setItems] = useState(initialIncidents);
   const [selected, setSelected] = useState<Incident | null>(initialIncidents[0] ?? null);
@@ -301,15 +311,7 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
         setFormError(payload.error || "Enregistrement impossible");
         return;
       }
-      const row = payload.incident;
-      const incident: Incident = {
-        id: row.reference, databaseId: row.id, category: row.category, title: row.title,
-        location: row.location, severity: row.severity, status: row.status,
-        observations: row.observations, reporterFirstName: row.reporter_first_name,
-        reporterLastName: row.reporter_last_name, reporterPhone: row.reporter_phone,
-        lat: row.latitude, lng: row.longitude,
-        color: colorForSeverity(row.severity),
-      };
+      const incident = incidentFromRecord(payload.incident as IncidentRecord);
       setItems((current) => current.some((item) => item.databaseId === incident.databaseId) ? current : [incident, ...current]);
       setSelected(incident);
       try {
@@ -332,6 +334,24 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
     }
   }
 
+  async function updateIncidentWorkflow(databaseId: string, status: string, severity: Incident["severity"], assignedTo: string | null) {
+    try {
+      const response = await fetch("/api/incidents", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: databaseId, status, severity, assignedTo }),
+      });
+      const payload = await response.json();
+      if (!response.ok) return String(payload.error || "Mise à jour impossible");
+      const updated = incidentFromRecord(payload.incident as IncidentRecord);
+      setItems((current) => current.map((item) => item.databaseId === databaseId ? updated : item));
+      setSelected((current) => current?.databaseId === databaseId ? updated : current);
+      return null;
+    } catch {
+      return "Connexion au serveur impossible";
+    }
+  }
+
   const currentDate = new Intl.DateTimeFormat("fr-FR", { dateStyle: "full" }).format(new Date(initialData.generatedAt));
   const currentTitle = active === "Vue d’ensemble" ? "État du réseau et des financements" : active;
 
@@ -345,6 +365,7 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
     <section className="workspace">
       <header className="topbar"><button className="mobile" aria-label="Ouvrir la navigation" onClick={() => setMobileOpen(true)}><Menu /></button><div><p>Plateforme de pilotage</p><h1>{active}</h1></div><div className="top-actions"><label className="search"><Search size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Route, ouvrage, décompte…" aria-label="Rechercher" /></label><button className="icon" aria-label="Notifications" disabled><Bell size={19} /></button><div className="profile-wrap"><button className="profile" aria-expanded={profileOpen} onClick={() => setProfileOpen((open) => !open)}><span>{initials(initialData.user.fullName)}</span><div><strong>{initialData.user.fullName}</strong><small>{initialData.user.role === "direction" ? "Direction" : "Agent technique"}</small></div><ChevronDown size={15} /></button>{profileOpen && <div className="profile-menu"><button onClick={() => { setAccountOpen(true); setProfileOpen(false); }}><UserRound size={16} />Mon compte</button><form action={logout}><button type="submit"><LogOut size={16} />Se déconnecter</button></form></div>}</div></div></header>
       <div className="content"><section className="heading"><div><p>{currentDate}</p><h2>{currentTitle}</h2><span>Les chiffres ci-dessous proviennent de la base Signale CI.</span></div><div><button ref={newIncidentButton} className="primary" onClick={openIncidentModal}><Plus size={18} />Nouveau signalement</button></div></section>
+        {active === "Signalements" ? <SignalementsModule items={items} evidence={evidence} staff={initialData.staff} selected={selected} onSelect={setSelected} query={query} onQueryChange={setQuery} onUpdate={updateIncidentWorkflow} /> : <>
         {active !== "Vue d’ensemble" && <section className="module-banner"><strong>{active}</strong><span>Ce module est en cours d’enrichissement. Les données réelles disponibles restent visibles ci-dessous.</span></section>}
         <section className="objectives"><span>OBJECTIFS FER</span><div><p><i className={engagementRate <= 100 ? "ok" : "warn"} />Engagements / budget <b>{engagementRate}%</b></p><p><i className={paymentAlerts ? "warn" : "ok"} />Décomptes proches de 60 jours <b>{paymentAlerts}</b></p><p><i className="ok" />Patrimoine inventorié <b>{initialData.assets.length}</b></p><p><i className="ok" />Ressources enregistrées <b>{initialData.resources.length}</b></p></div></section>
         <section className="kpis"><article><span className="kicon red"><AlertTriangle /></span><div><small>Signalements ouverts</small><strong>{openIncidents}</strong><p>{items.length} signalement(s) au total</p></div></article><article><span className="kicon amber"><Construction /></span><div><small>Interventions en cours</small><strong>{runningInterventions}</strong><p>{initialData.interventions.length} intervention(s) enregistrée(s)</p></div></article><article><span className="kicon green"><Landmark /></span><div><small>Ressources mobilisées</small><strong>{formatFcfa(totalResources)}</strong><p>Données déclarées dans Signale CI</p></div></article><article><span className="kicon blue"><WalletCards /></span><div><small>Décomptes à régler</small><strong>{formatFcfa(unpaidAmount)}</strong><p>{unpaid.length} décompte(s) ouvert(s)</p></div></article></section>
@@ -353,6 +374,7 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
         {selected ? <section className="card incident-detail"><div className="card-head"><div><h3>Détail du signalement</h3><p>{selected.id} · {selected.category}</p></div><b className={`severity s-${selected.severity[0]}`}>{selected.severity}</b></div><div className="incident-detail-body"><div className="incident-summary"><div><strong>{selected.title}</strong><span><MapPin />{selected.location}</span>{reporterContact(selected) ? <span><Phone />{reporterContact(selected)}</span> : <span>Déclarant non renseigné</span>}</div><p>{selected.observations || "Aucune information complémentaire."}</p></div><div className="incident-evidence"><div><strong>Photos et vidéos</strong><span>{selectedEvidence.length} preuve(s)</span></div>{selectedEvidence.length ? <div className="incident-evidence-grid">{selectedEvidence.map((evidence) => <article key={evidence.id}>{evidence.signed_url ? evidence.media_type === "video" ? <video controls preload="metadata" src={evidence.signed_url} /> : <img src={evidence.signed_url} alt={`Preuve : ${evidence.original_name}`} /> : <div className="incident-evidence-unavailable"><FileImage />Indisponible</div>}<div><span>{evidence.media_type === "video" ? <Video /> : <FileImage />}{evidence.original_name}</span><small>{formatEvidenceSize(evidence.size_bytes)}</small>{evidence.signed_url ? <a href={evidence.signed_url} target="_blank" rel="noreferrer">Ouvrir <ExternalLink /></a> : null}</div></article>)}</div> : <div className="incident-evidence-empty"><FileImage /><span>Aucune photo ou vidéo jointe à ce signalement.</span></div>}</div></div></section> : null}
         <section className="bottom-grid"><article className="card performance"><div className="card-head"><div><h3>Avancement des interventions</h3><p>Données réelles par intervention</p></div><span className="record-count">{initialData.interventions.length}</span></div><div className="progress-list">{initialData.interventions.slice(0, 5).map((row) => <div key={row.id}><p><strong>{row.type}</strong><span>{row.progress}%</span></p><small>{row.contractor} · {row.status}</small><progress value={row.progress} max="100" /></div>)}{!initialData.interventions.length && <div className="empty-state compact"><Construction /><strong>Aucune intervention</strong><span>Les travaux planifiés apparaîtront ici.</span></div>}</div></article>
           <article className="card finance"><div className="card-head"><div><h3>Maîtrise financière</h3><p>Engagements issus des interventions</p></div></div><div className="donut-row"><div className="donut" style={{ background: `conic-gradient(var(--green2) 0 ${Math.min(engagementRate, 100)}%,#e4ece9 ${Math.min(engagementRate, 100)}%)` }}><strong>{engagementRate}%</strong><span>engagé</span></div><div className="finance-data"><p><span>Budget</span><b>{formatFcfa(totalBudget)}</b></p><p><span>Engagé</span><b>{formatFcfa(totalCommitted)}</b></p><p><span>À régler</span><b>{formatFcfa(unpaidAmount)}</b></p><progress value={Math.min(engagementRate, 100)} max="100" /></div></div>{!totalBudget && <div className="finance-note">Aucun budget d’intervention enregistré.</div>}</article></section>
+        </>}
       </div>
     </section>
     {modal && <div className="modal-bg" role="presentation" onMouseDown={() => { if (!submitting) setModal(false); }}>
@@ -375,6 +397,107 @@ export default function DashboardClient({ initialData }: { initialData: Dashboar
     </div>}
     {accountOpen && <AccountModal user={initialData.user} onClose={() => setAccountOpen(false)} />}
   </main>;
+}
+
+const workflowStatuses = ["À qualifier", "Validé", "Planifié", "En traitement", "Résolu", "Rejeté"];
+
+type SignalementsModuleProps = {
+  items: Incident[];
+  evidence: EvidenceRecord[];
+  staff: StaffProfile[];
+  selected: Incident | null;
+  onSelect: (incident: Incident) => void;
+  query: string;
+  onQueryChange: (value: string) => void;
+  onUpdate: (databaseId: string, status: string, severity: Incident["severity"], assignedTo: string | null) => Promise<string | null>;
+};
+
+function SignalementsModule({ items, evidence, staff, selected, onSelect, query, onQueryChange, onUpdate }: SignalementsModuleProps) {
+  const [category, setCategory] = useState("Toutes");
+  const [status, setStatus] = useState("Tous");
+  const [severity, setSeverity] = useState("Toutes");
+  const [assignee, setAssignee] = useState("Tous");
+  const categories = useMemo(() => Array.from(new Set(items.map((item) => item.category))).sort((a, b) => a.localeCompare(b, "fr")), [items]);
+  const normalizedQuery = query.trim().toLocaleLowerCase("fr");
+  const filteredItems = useMemo(() => items.filter((item) => {
+    const matchesQuery = !normalizedQuery || `${item.id} ${item.title} ${item.location} ${item.category} ${item.status} ${reporterContact(item)}`.toLocaleLowerCase("fr").includes(normalizedQuery);
+    const matchesCategory = category === "Toutes" || item.category === category;
+    const matchesStatus = status === "Tous" || item.status === status;
+    const matchesSeverity = severity === "Toutes" || item.severity === severity;
+    const matchesAssignee = assignee === "Tous" || (assignee === "none" ? !item.assignedTo : item.assignedTo === assignee);
+    return matchesQuery && matchesCategory && matchesStatus && matchesSeverity && matchesAssignee;
+  }), [assignee, category, items, normalizedQuery, severity, status]);
+  const staffById = useMemo(() => new globalThis.Map(staff.map((profile) => [profile.id, profile.full_name])), [staff]);
+
+  return <section className="signals-module" aria-labelledby="signals-module-title">
+    <div className="signals-intro"><div><span>GESTION OPÉRATIONNELLE</span><h3 id="signals-module-title">Qualification des signalements</h3><p>Analysez les demandes citoyennes et internes, contrôlez les preuves, définissez la priorité puis affectez un responsable.</p></div><span className="signals-total">{items.length}<small>au total</small></span></div>
+    <div className="signals-kpis">
+      <article><span className="signal-kpi-icon amber"><Clock3 /></span><div><strong>{items.filter((item) => item.status === "À qualifier").length}</strong><small>À qualifier</small></div></article>
+      <article><span className="signal-kpi-icon red"><AlertTriangle /></span><div><strong>{items.filter((item) => item.severity === "Critique" && !["Résolu", "Rejeté"].includes(item.status)).length}</strong><small>Critiques ouverts</small></div></article>
+      <article><span className="signal-kpi-icon blue"><UserCheck /></span><div><strong>{items.filter((item) => item.assignedTo).length}</strong><small>Affectés</small></div></article>
+      <article><span className="signal-kpi-icon green"><CheckCircle2 /></span><div><strong>{items.filter((item) => item.status === "Résolu").length}</strong><small>Résolus</small></div></article>
+    </div>
+    <div className="signals-filters card">
+      <label className="signals-search"><span>Rechercher</span><div><Search /><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Référence, lieu, déclarant…" /></div></label>
+      <label><span>Catégorie</span><select value={category} onChange={(event) => setCategory(event.target.value)}><option>Toutes</option>{categories.map((value) => <option key={value}>{value}</option>)}</select></label>
+      <label><span>Statut</span><select value={status} onChange={(event) => setStatus(event.target.value)}><option>Tous</option>{workflowStatuses.map((value) => <option key={value}>{value}</option>)}</select></label>
+      <label><span>Priorité</span><select value={severity} onChange={(event) => setSeverity(event.target.value)}><option>Toutes</option><option>Critique</option><option>Élevée</option><option>Modérée</option></select></label>
+      <label><span>Affectation</span><select value={assignee} onChange={(event) => setAssignee(event.target.value)}><option value="Tous">Toutes</option><option value="none">Non affectés</option>{staff.map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name}</option>)}</select></label>
+    </div>
+    <div className="signals-workspace">
+      <article className="card signals-list-panel">
+        <div className="signals-panel-head"><div><strong>Signalements</strong><span>{filteredItems.length} résultat(s)</span></div></div>
+        <div className="signals-list">
+          {filteredItems.map((item) => <button type="button" key={item.databaseId} className={`signal-row ${selected?.databaseId === item.databaseId ? "selected" : ""}`} onClick={() => onSelect(item)}>
+            <span className="signal-row-top"><b>{item.id}</b><em className={`signal-source ${item.source === "Citoyen" ? "citizen" : "internal"}`}>{item.source}</em><time>{new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" }).format(new Date(item.createdAt))}</time></span>
+            <strong>{item.title}</strong>
+            <span className="signal-row-location"><MapPin />{item.location}</span>
+            <span className="signal-row-bottom"><em className={`signal-status status-${item.status.toLocaleLowerCase("fr").replaceAll(" ", "-")}`}>{item.status}</em><b className={`severity s-${item.severity[0]}`}>{item.severity}</b><small>{item.assignedTo ? staffById.get(item.assignedTo) || "Agent FER" : "Non affecté"}</small></span>
+          </button>)}
+          {!filteredItems.length && <div className="signals-empty"><AlertTriangle /><strong>Aucun signalement trouvé</strong><span>Modifiez les filtres ou enregistrez un nouveau signalement.</span></div>}
+        </div>
+      </article>
+      {selected ? <IncidentWorkflow key={selected.databaseId} incident={selected} evidence={evidence.filter((item) => item.incident_id === selected.databaseId)} staff={staff} onUpdate={onUpdate} /> : <article className="card signals-detail-empty"><ClipboardList /><strong>Sélectionnez un signalement</strong><span>La fiche, les preuves et le circuit de traitement apparaîtront ici.</span></article>}
+    </div>
+  </section>;
+}
+
+function IncidentWorkflow({ incident, evidence, staff, onUpdate }: { incident: Incident; evidence: EvidenceRecord[]; staff: StaffProfile[]; onUpdate: SignalementsModuleProps["onUpdate"] }) {
+  const [status, setStatus] = useState(incident.status);
+  const [severity, setSeverity] = useState(incident.severity);
+  const [assignedTo, setAssignedTo] = useState(incident.assignedTo ?? "");
+  const [pending, setPending] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+    setPending(true); setMessage(""); setError("");
+    const updateError = await onUpdate(incident.databaseId, status, severity, assignedTo || null);
+    setPending(false);
+    if (updateError) return setError(updateError);
+    setMessage("Qualification et affectation enregistrées.");
+  }
+
+  return <article className="card signal-detail-panel">
+    <div className="signal-detail-head"><div><span>{incident.id} · {incident.category}</span><h3>{incident.title}</h3></div><b className={`severity s-${incident.severity[0]}`}>{incident.severity}</b></div>
+    <div className="signal-detail-meta">
+      <span><MapPin />{incident.location}</span>
+      <span><Clock3 />Reçu le {new Intl.DateTimeFormat("fr-FR", { dateStyle: "medium", timeStyle: "short" }).format(new Date(incident.createdAt))}</span>
+      <a href={`https://www.openstreetmap.org/?mlat=${incident.lat}&mlon=${incident.lng}#map=17/${incident.lat}/${incident.lng}`} target="_blank" rel="noreferrer"><Crosshair />{incident.lat.toFixed(6)}, {incident.lng.toFixed(6)}<ExternalLink /></a>
+    </div>
+    <section className="signal-detail-section"><h4>Déclarant</h4>{reporterContact(incident) ? <div className="signal-contact"><UserRound /><div><strong>{[incident.reporterFirstName, incident.reporterLastName].filter(Boolean).join(" ") || "Identité non renseignée"}</strong><span>{incident.reporterPhone || "Téléphone non renseigné"}</span></div></div> : <p className="signal-muted">Le déclarant n’a pas communiqué ses coordonnées.</p>}</section>
+    <section className="signal-detail-section"><h4>Observations</h4><p className="signal-observations">{incident.observations || "Aucune information complémentaire."}</p></section>
+    <section className="signal-detail-section"><div className="signal-proof-title"><h4>Photos et vidéos</h4><span>{evidence.length} preuve(s)</span></div>{evidence.length ? <div className="incident-evidence-grid signal-proof-grid">{evidence.map((item) => <article key={item.id}>{item.signed_url ? item.media_type === "video" ? <video controls preload="metadata" src={item.signed_url} /> : <img src={item.signed_url} alt={`Preuve : ${item.original_name}`} /> : <div className="incident-evidence-unavailable"><FileImage />Indisponible</div>}<div><span>{item.media_type === "video" ? <Video /> : <FileImage />}{item.original_name}</span><small>{formatEvidenceSize(item.size_bytes)}</small>{item.signed_url ? <a href={item.signed_url} target="_blank" rel="noreferrer">Ouvrir <ExternalLink /></a> : null}</div></article>)}</div> : <div className="incident-evidence-empty"><FileImage /><span>Aucune preuve jointe.</span></div>}</section>
+    <form className="signal-workflow-form" onSubmit={save}>
+      <div className="signal-proof-title"><h4>Qualification et affectation</h4><span>Traitement FER</span></div>
+      {error && <div className="login-error" role="alert">{error}</div>}{message && <div className="success-message" role="status">{message}</div>}
+      <div><label>Statut<select value={status} onChange={(event) => setStatus(event.target.value)} disabled={pending}>{workflowStatuses.map((value) => <option key={value}>{value}</option>)}</select></label><label>Priorité<select value={severity} onChange={(event) => setSeverity(event.target.value as Incident["severity"])} disabled={pending}><option>Critique</option><option>Élevée</option><option>Modérée</option></select></label></div>
+      <label>Responsable<select value={assignedTo} onChange={(event) => setAssignedTo(event.target.value)} disabled={pending}><option value="">Non affecté</option>{staff.map((profile) => <option key={profile.id} value={profile.id}>{profile.full_name} — {profile.role === "direction" ? "Direction" : "Agent"}</option>)}</select></label>
+      <button className="primary" disabled={pending}>{pending ? "Enregistrement…" : "Enregistrer les modifications"}</button>
+    </form>
+  </article>;
 }
 
 function AccountModal({ user, onClose }: { user: DashboardData["user"]; onClose: () => void }) {

@@ -29,6 +29,7 @@ create table if not exists public.incidents (
   reporter_first_name text,
   reporter_last_name text,
   reporter_phone text,
+  assigned_to uuid references public.profiles(id) on delete set null,
   created_by uuid not null references public.profiles(id),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
@@ -90,7 +91,10 @@ alter table public.incidents add column if not exists client_request_id uuid;
 alter table public.incidents add column if not exists reporter_first_name text;
 alter table public.incidents add column if not exists reporter_last_name text;
 alter table public.incidents add column if not exists reporter_phone text;
+alter table public.incidents add column if not exists assigned_to uuid references public.profiles(id) on delete set null;
 alter table public.incidents alter column reference set default ('FER-' || upper(substr(replace(gen_random_uuid()::text,'-',''),1,8)));
+alter table public.incidents drop constraint if exists incidents_status_check;
+alter table public.incidents add constraint incidents_status_check check (status in ('À qualifier','Validé','Planifié','En traitement','Résolu','Rejeté'));
 
 do $$
 begin
@@ -109,6 +113,7 @@ $$;
 create unique index if not exists profiles_phone_unique on public.profiles(phone) where phone is not null;
 create unique index if not exists incidents_client_request_unique on public.incidents(client_request_id) where client_request_id is not null;
 create index if not exists incidents_created_by_created_at_idx on public.incidents(created_by,created_at desc);
+create index if not exists incidents_assigned_to_status_idx on public.incidents(assigned_to,status) where assigned_to is not null;
 create index if not exists interventions_created_by_idx on public.interventions(created_by);
 create index if not exists interventions_incident_id_idx on public.interventions(incident_id);
 create index if not exists incident_evidence_incident_created_idx on public.incident_evidence(incident_id,created_at);
@@ -148,10 +153,23 @@ begin
 end;
 $$;
 
+create or replace function private.validate_incident_assignee()
+returns trigger language plpgsql security definer set search_path = '' as $$
+begin
+  if new.assigned_to is not null and not exists (
+    select 1 from public.profiles profile where profile.id=new.assigned_to and profile.role in ('direction','agent')
+  ) then
+    raise exception 'incident assignee must be FER staff' using errcode='23514';
+  end if;
+  return new;
+end;
+$$;
+
 revoke all on function private.has_fer_role(text[]) from public,anon;
 revoke all on function private.sync_auth_user_profile() from public,anon,authenticated;
 revoke all on function private.touch_updated_at() from public,anon,authenticated;
 revoke all on function private.protect_incident_owner() from public,anon,authenticated;
+revoke all on function private.validate_incident_assignee() from public,anon,authenticated;
 grant usage on schema private to authenticated;
 grant execute on function private.has_fer_role(text[]) to authenticated;
 
@@ -161,6 +179,8 @@ drop trigger if exists incidents_touch_updated_at on public.incidents;
 create trigger incidents_touch_updated_at before update on public.incidents for each row execute function private.touch_updated_at();
 drop trigger if exists incidents_protect_owner on public.incidents;
 create trigger incidents_protect_owner before update on public.incidents for each row execute function private.protect_incident_owner();
+drop trigger if exists incidents_validate_assignee on public.incidents;
+create trigger incidents_validate_assignee before insert or update of assigned_to on public.incidents for each row execute function private.validate_incident_assignee();
 
 alter table public.profiles enable row level security;
 alter table public.incidents enable row level security;
@@ -186,7 +206,11 @@ with check(uploaded_by=(select auth.uid()) and exists(
 drop policy if exists "profil personnel" on public.profiles;
 drop policy if exists profiles_select_authorized on public.profiles;
 create policy profiles_select_authorized on public.profiles for select to authenticated
-using(id=(select auth.uid()) or private.has_fer_role(array['direction']));
+using(
+  id=(select auth.uid())
+  or private.has_fer_role(array['direction'])
+  or (private.has_fer_role(array['agent']) and role in ('direction','agent'))
+);
 
 drop policy if exists "personnel lit incidents" on public.incidents;
 drop policy if exists "personnel crée incidents" on public.incidents;
